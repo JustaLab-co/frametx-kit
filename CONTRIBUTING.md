@@ -6,10 +6,10 @@ exist only to redirect assistants here.
 
 ## What this is, and why it exists twice
 
-`frametx-kit` reads, builds, hashes, signs, prices and simulates EIP-8141 frame
-transactions as the hegota-testnet chain (chain ID `8141`) accepts them. That envelope is
-a composition of three draft EIPs that none of them specifies on its own: EIP-8141
-frames, EIP-8250 keyed nonces, EIP-8272 recent-root references.
+`frametx-kit` reads, builds, hashes, signs, prices, simulates and broadcasts EIP-8141
+frame transactions as the hegota-testnet chain (chain ID `8141`) accepts them. That
+envelope is a composition of three draft EIPs that none of them specifies on its own:
+EIP-8141 frames, EIP-8250 keyed nonces, EIP-8272 recent-root references.
 
 It is a deliberate second implementation. The reference client is
 [ethrex, on its `hegota-testnet` branch](https://github.com/lambdaclass/ethrex/tree/hegota-testnet),
