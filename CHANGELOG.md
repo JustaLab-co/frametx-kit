@@ -1,3 +1,10 @@
+## [0.1.1](https://github.com/JustaName-id/frametx-kit/compare/v0.1.0...v0.1.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **docs:** update to reflect broadcast capability ([#9](https://github.com/JustaName-id/frametx-kit/issues/9)) ([3cba761](https://github.com/JustaName-id/frametx-kit/commit/3cba761660f4bb43ebe9ff78b9cbd9ace34a73fe))
+
 # [0.1.0](https://github.com/JustaName-id/frametx-kit/compare/v0.0.2...v0.1.0) (2026-09-15)
 
 
