@@ -221,10 +221,17 @@ export async function sendRawFrameTransaction(client: FrameRpcClient, raw: Hex):
   if (!/^0x06[0-9a-fA-F]*$/.test(raw))
     throw new FrameDecodeError('not a frame transaction: raw bytes must start with 0x06')
 
-  const answer = (await client.request({
-    method: 'eth_sendRawTransaction',
-    params: [raw],
-  })) as unknown
+  // `retryCount: 0`, as viem's own `sendRawTransaction` does. The transport
+  // retries a timed-out request by default; re-posting a broadcast that the
+  // node already accepted is answered "already known", and the caller would be
+  // told the send failed while the transaction sits in the pool.
+  const answer = (await client.request(
+    {
+      method: 'eth_sendRawTransaction',
+      params: [raw],
+    },
+    { retryCount: 0 },
+  )) as unknown
 
   if (typeof answer !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(answer))
     throw new FrameDecodeError(

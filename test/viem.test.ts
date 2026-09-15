@@ -127,10 +127,10 @@ describe('frameActions', () => {
     const client = stubClient({ eth_sendRawTransaction: GOLDEN_HASH })
     const hash = await frameActions(client).sendFrameTransaction({ transaction: GOLDEN_TX })
     expect(hash).toBe(GOLDEN_HASH)
-    expect(client.request).toHaveBeenCalledWith({
-      method: 'eth_sendRawTransaction',
-      params: [GOLDEN_RLP],
-    })
+    expect(client.request).toHaveBeenCalledWith(
+      { method: 'eth_sendRawTransaction', params: [GOLDEN_RLP] },
+      { retryCount: 0 },
+    )
   })
 
   test('sendFrameTransaction refuses an invalid transaction before touching the network', async () => {

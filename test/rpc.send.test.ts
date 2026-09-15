@@ -6,7 +6,9 @@ import { GOLDEN_RLP } from './fixtures/golden.js'
 const GOLDEN_HASH = keccak256(GOLDEN_RLP)
 
 function stubClient(handler: (args: { method: string; params?: unknown }) => unknown) {
-  const request = vi.fn(async (args: { method: string; params?: unknown }) => handler(args))
+  const request = vi.fn(
+    async (args: { method: string; params?: unknown }, _options?: unknown) => handler(args),
+  )
   // viem's request type is schema-generic; a stub needs this one cast, here only.
   return { client: { request: request as unknown as EIP1193RequestFn }, request }
 }
@@ -24,6 +26,16 @@ describe('sendRawFrameTransaction', () => {
       method: 'eth_sendRawTransaction',
       params: [GOLDEN_RLP],
     })
+  })
+
+  test('posts with retries disabled, so a timed-out broadcast is not re-sent', async () => {
+    // viem's transport retries a timed-out request by default. A re-posted
+    // broadcast is answered "already known" while the first copy sits in the
+    // pool, so the caller sees a failure for a transaction that was accepted.
+    // viem's own sendRawTransaction passes `{ retryCount: 0 }` for this reason.
+    const { client, request } = stubClient(() => GOLDEN_HASH)
+    await sendRawFrameTransaction(client, GOLDEN_RLP)
+    expect(request.mock.calls[0]![1]).toEqual({ retryCount: 0 })
   })
 
   test('accepts an uppercased hash from the node and returns it lowercased', async () => {
