@@ -1,3 +1,10 @@
+# [0.1.0](https://github.com/JustaName-id/frametx-kit/compare/v0.0.2...v0.1.0) (2026-09-15)
+
+
+### Features
+
+* broadcast frame transactions and wait on frame receipts ([#8](https://github.com/JustaName-id/frametx-kit/issues/8)) ([0c21b17](https://github.com/JustaName-id/frametx-kit/commit/0c21b17d454f7b766516df5dec923fb4c7185421))
+
 ## [0.0.2](https://github.com/JustaName-id/frametx-kit/compare/v0.0.1...v0.0.2) (2026-09-08)
 
 
