@@ -195,3 +195,10 @@ someone downstream is encoding bytes with this.
   where the code and the spec disagree, that is a bug in one of them, so say which.
 - `docs/OPEN-ITEMS.md` — known gaps and unfinished work.
 - `README.md` — user-facing API.
+- `SECURITY.md` — what counts as a vulnerability here, and why a report goes private.
+- `CODE_OF_CONDUCT.md` — expected conduct in issues and pull requests.
+
+Opening a pull request loads `.github/PULL_REQUEST_TEMPLATE.md`, which asks which oracle
+pins the change and whether it touched anything in **Rules that are not style
+preferences**. Issues are forms: a disagreement with ethrex goes to the divergence report,
+which asks for the transaction hash, the ethrex commit and the rule set you priced under.
