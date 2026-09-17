@@ -1,0 +1,7 @@
+# Review is requested automatically from these accounts.
+* @mariano-aguero @Ghadi8
+
+# The oracles and the published gas figures are what the library exists for,
+# so a change to either always gets a second pair of eyes.
+/src/gas.ts @mariano-aguero
+/test/fixtures/ @mariano-aguero
