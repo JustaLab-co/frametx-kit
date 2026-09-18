@@ -1,151 +1,22 @@
 import { describe, expect, test } from 'vitest'
-import { keccak256 } from 'viem'
 import { decodeFrameTx, encodeFrameTx } from '../src/envelope.js'
+import { frameTxSigHash } from '../src/sighash.js'
 import {
-  FRAME_TX_PER_FRAME_COST,
-  RECENT_ROOT_REFERENCE_ADDRESS_GAS,
-  RECENT_ROOT_REFERENCE_GAS,
-  frameTxGas,
-  frameTxMaxCost,
-} from '../src/gas.js'
-import { type GasDivergence, compareRuleSets } from '../src/divergence.js'
-import { parseRpcFrameReceipt, parseRpcFrameTransaction } from '../src/rpc.js'
-import { recoverFrameSigner, resolveSigner } from '../src/signatures.js'
-import { loadChainFixtures } from './helpers/fixtures.js'
+  GOLDEN_RLP,
+  GOLDEN_SIG_HASH,
+  GOLDEN_TX,
+} from './fixtures/golden.js'
 
-const fixtures = loadChainFixtures()
-
-/**
- * Every term the head envelope change can move: the dropped reference charge, the
- * extra frame, the calldata that moves from `rlp(refs)` into frame data, and the
- * totals derived from those. A term outside this set is a finding.
- */
-const HEAD_SHAPE_TERMS = new Set<GasDivergence['term']>([
-  'mandatoryGas',
-  'recentRootReferenceGas',
-  'billedBytes',
-  'dataCost',
-  'intrinsicGas',
-  'calldataTokens',
-  'calldataFloorGas',
-  'calldataFloorTotal',
-  'standardGasLimit',
-  'maxGas',
-])
-
-describe('captured fixtures', () => {
-  test('at least one fixture is present', () => {
-    expect(fixtures.length).toBeGreaterThan(0)
+describe('Ethrex v23 wire oracle', () => {
+  test('encodes the seven-field transaction byte-for-byte', () => {
+    expect(encodeFrameTx(GOLDEN_TX)).toBe(GOLDEN_RLP)
   })
 
-  test('every fixture was captured against the third genesis', () => {
-    for (const f of fixtures)
-      expect(f.meta.genesisHash).toBe(
-        '0x7ca0f7358d127dc4a68983050eb88837a5f384225254d1b009fa87fbcd0f2332',
-      )
-  })
-})
-
-describe.each(fixtures)('$name', (fixture) => {
-  const tx = parseRpcFrameTransaction(fixture.tx)
-  const raw = encodeFrameTx(tx)
-
-  // Oracle 2: absolute layout. The transaction hash is keccak256 of the canonical
-  // bytes, so reproducing it from the node's decoded JSON pins every byte of the
-  // envelope — nesting included. A field-by-field diff of two decoders could not
-  // see a mis-nesting they both made; the hash can.
-  test('re-encoding the node JSON reproduces the transaction hash', () => {
-    expect(keccak256(raw)).toBe(fixture.tx.hash)
+  test('decodes the exact bytes without a dialect transform', () => {
+    expect(decodeFrameTx(GOLDEN_RLP)).toEqual(GOLDEN_TX)
   })
 
-  // Oracle 2, decoder side: our decoder over those bytes agrees with the node's
-  // decoder over the same bytes.
-  test('decodes to the same transaction the node reports', () => {
-    expect(decodeFrameTx(raw)).toEqual(tx)
-  })
-
-  // The node ran signature authentication over our bytes and got past it, i.e.
-  // our sig_hash over a REAL signature equals the node's. Recorded at capture.
-  test('the node authenticated our re-encoding', () => {
-    expect(fixture.simulate.violation ?? '').not.toMatch(/does not authenticate/)
-  })
-
-  // Oracle 3: recovery. The signer is often NOT the sender on this chain — the
-  // shielded pool's spends have the pool as sender and an EOA as signer — so the
-  // comparison is against the resolved signer, not `sender`.
-  test('every empty-msg secp256k1 signature recovers to its resolved signer', async () => {
-    for (const [i, sig] of tx.signatures.entries()) {
-      if (sig.scheme !== 1 || sig.msg !== '0x') continue
-      expect(await recoverFrameSigner(tx, i)).toBe(resolveSigner(tx, i))
-    }
-  })
-
-  // Oracle 3: the receipt parses, one entry per frame, three-valued status intact.
-  test('the receipt parses with one entry per frame', () => {
-    const receipt = parseRpcFrameReceipt(fixture.receipt)
-    expect(receipt.frameReceipts.length).toBe(tx.frames.length)
-  })
-
-  // Oracle 3: max gas. The node computed `maxCost` from OUR bytes; 'chain' must
-  // reproduce it exactly. The blob term needs the block's blob base fee, which
-  // the fixture does not carry, so blob-carrying transactions are skipped here.
-  test("'chain' reproduces the node's maxCost", () => {
-    if (tx.blobVersionedHashes.length > 0) return
-    expect(frameTxMaxCost(tx, 0n, 'chain')).toBe(BigInt(fixture.simulate.maxCost))
-  })
-
-  // Oracle 3: the receipt reconciles. Observed with a zero delta on every live
-  // transaction checked: gasUsed = intrinsic + Σ execution + Σ state. Four of
-  // the five captured fixtures (block 2782, 2787, 2792, 42241) take the
-  // standard branch; the fifth, 0xe936e39d…25fb1 at block 42086, takes the
-  // EIP-7623 calldata-floor branch — standard 26246, floored 27382, actual
-  // receipt gasUsed 27382 — so both arms are exercised on live data.
-  test('receipt.gasUsed = intrinsic + Σ frame gasUsed + Σ frame stateGasUsed', () => {
-    const receipt = parseRpcFrameReceipt(fixture.receipt)
-    const gas = frameTxGas(tx, 'chain')
-    const execution = receipt.frameReceipts.reduce((acc, f) => acc + f.gasUsed, 0n)
-    const state = receipt.frameReceipts.reduce((acc, f) => acc + f.stateGasUsed, 0n)
-    const standard = gas.intrinsicGas + execution + state
-    const floored = gas.calldataFloorTotal + state
-    expect(BigInt(fixture.receipt.gasUsed)).toBe(standard > floored ? standard : floored)
-  })
-
-  // The divergence survey. Any divergence must be one the ledger explains.
-  test('chain-vs-pins divergences are only ever valueTransferCost-rooted', () => {
-    const divergences = compareRuleSets(tx, 'chain', 'pins')
-    if (divergences.length === 0) return
-    const root = divergences.find((d) => d.term === 'valueTransferCost')
-    expect(root, `unexplained divergence in ${fixture.name}: ${JSON.stringify(
-      divergences.map((d) => d.term),
-    )}`).toBeDefined()
-    expect(root!.delta % 6_000n).toBe(0n)
-  })
-
-  // The same survey against the head draft. Two of the captured fixtures carry
-  // recent-root references, the shape `frameTxGas(tx, 'head')` refuses, so this
-  // runs over `toHeadShape` and is the only place head pricing meets live data.
-  const refs = tx.recentRootReferences.length
-
-  test('pins-vs-head divergences are rooted in the dropped envelope field', () => {
-    const divergences = compareRuleSets(tx, 'pins', 'head')
-    if (refs === 0) {
-      expect(divergences).toEqual([])
-      return
-    }
-
-    const byTerm = new Map(divergences.map((d) => [d.term, d.delta]))
-    // The envelope field is gone: 2400 for the address, 2002 per reference.
-    expect(byTerm.get('recentRootReferenceGas')).toBe(
-      RECENT_ROOT_REFERENCE_ADDRESS_GAS + BigInt(refs) * RECENT_ROOT_REFERENCE_GAS,
-    )
-    // One frame more than the envelope shape, and no other mandatory term moves.
-    expect(byTerm.get('mandatoryGas')).toBe(FRAME_TX_PER_FRAME_COST)
-  })
-
-  test('pins-vs-head moves no term outside the two roots', () => {
-    const unexpected = compareRuleSets(tx, 'pins', 'head')
-      .map((d) => d.term)
-      .filter((term) => !HEAD_SHAPE_TERMS.has(term))
-    expect(unexpected, `${fixture.name} diverges on an unaccounted term`).toEqual([])
+  test('reproduces the canonical signature hash', () => {
+    expect(frameTxSigHash(GOLDEN_TX)).toBe(GOLDEN_SIG_HASH)
   })
 })

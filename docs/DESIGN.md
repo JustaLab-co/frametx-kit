@@ -1,31 +1,22 @@
-# frametx-kit — design
+# frametx-kit design
 
-**Date:** 2026-09-06
-**Status:** implemented; binding on the code in this repository. Reviewed against ethrex `hegota-testnet` @ `19c065fa8` and the live node on 2026-09-06; §5, §6 and §9 amended for the RPC surface actually served (no raw transaction bytes). §5, §7 and §8 amended 2026-09-07 to match the module graph, strict-decode surface and entry-point name as built. §7 amended 2026-09-08: the byte-offset promise is delivered by a hand-rolled `walkRlp`, not deferred. §4 amended 2026-09-08: the `'head'` EIP-8272 frame shape and `72`-byte tuple order confirmed against upstream `eip-8272.md` @ `824cbc0b0`.
-**Target network:** hegota-testnet, chain ID `8141`, genesis `0x7ca0f735…cd0f2332`
-**Reference client:** [`lambdaclass/ethrex`, branch `hegota-testnet`](https://github.com/lambdaclass/ethrex/tree/hegota-testnet). Every `.rs`, `.py` and `docs/*.md` path cited below is a path in that repository, not in this one.
+**Status:** implemented against the EIP-8141 frame transaction layout used by
+Ethrex `v23.0.0-HEAD-d587cf9ff0996315381c4b2784a4d7d499decc0f`.
 
-A TypeScript library for reading, building, hashing, pricing and simulating EIP-8141 frame
-transactions as they exist on hegota-testnet — the composed envelope that also carries
-EIP-8250 keyed nonces and EIP-8272 recent-root references.
+## Scope
 
-## 1. Why this exists
+The package provides pure TypeScript tools to encode, decode, hash, sign, validate,
+price, and format EIP-8141 frame transactions. It also provides a small account
+abstraction for constructing account-specific validation and signatures.
 
-**No JavaScript can touch this chain.** The only frame-transaction encoders are ethrex's Rust
-implementation and ethrex's own `scripts/hegota-testnet/frametx.py` (126 lines). viem PR 4486 is a draft,
-last touched 2026-05-06, with zero human review; it implements a pre-composition EIP-8141
-envelope with a flat `nonce`, flat fees, no `limits`, no recent-root references, and — across
-its whole 3372-line diff — no `signatures` field and no `sig_hash`. It cannot authenticate a
-frame transaction, and its bytes are not the bytes this chain accepts.
+Transaction submission remains a normal `eth_sendRawTransaction` call. The optional
+Ethrex simulation wrapper is retained, but not every frames-devnet RPC exposes that
+method.
 
-**A second implementation with hardcoded published figures catches a class of drift that
-derived-constant tests cannot.** From `crates/common/types/transaction.rs:2215-2220`:
+## Canonical envelope
 
-> EIP-8141 publishes these in its Constants table; assert the constants reproduce them exactly,
-> so a repricing or a re-spelling upstream is a compile error here rather than a silent
-> consensus change. […] the reason the intrinsic drop from 15000 to 12000 was invisible to 1372
-> tests: the suite derives its expected intrinsic from this constant, so it can check the
-> formula's composition but never the published figure.
+A transaction is encoded as `0x06 || rlp(payload)`, where `payload` has exactly seven
+fields:
 
 The same blindness applies to the wire format. From `test/tests/common/frame_tx_wire_tests.rs:3-8`:
 
@@ -95,176 +86,85 @@ limits    = rlp([execution, state])
 signature = rlp([scheme, signer, msg, signature_bytes])
 ```
 
-The composition of the three EIPs is this chain's own choice — none of the three specifies it.
-EIP-8250 replaces the scalar `nonce` with `nonce_keys, nonce_seq` in place, EIP-8272 appends
-`recent_root_references` last, and EIP-8141's `fees` list sits where its three flat fee fields
-used to be.
+`nonce` is a scalar u64 account nonce. The older experimental `nonce_keys`,
+`nonce_seq`, and `recent_root_references` fields are intentionally unsupported.
 
-> **`docs/eip-8141.md:78` in the ethrex branch still documents the pre-composition layout** —
-> flat `nonce`, flat fee fields, and a frame as `[mode, flags, target, gas_limit, value, data]`
-> with no `limits` nesting. Anyone building from that section produces bytes the node rejects.
-> Reporting this is a candidate contribution (§10).
+A frame is:
 
-### sig_hash
-
-```
-sig_hash = keccak256(0x06 || rlp(envelope with empty-msg signatures' bytes elided))
+```text
+[mode, flags, target, [execution_gas, state_gas], value, data]
 ```
 
-Each signature whose `msg` is empty has its `signature` field replaced with empty bytes,
-because a signature over `compute_sig_hash` cannot commit to its own bytes. Signatures with an
-explicit 32-byte `msg` keep their bytes — they sign that digest, not this hash. All frame data
-is committed verbatim.
+A signature is:
 
-The consequence for the API: **the encoder is a dependency of the decoder's verification
-path**, because `sig_hash` is defined over a re-encoding. Read-only work still exercises the
-full round trip.
-
-### Signature schemes and canonical rules
-
-`scheme`: 0 ARBITRARY, 1 SECP256K1, 2 P256.
-
-- ARBITRARY — `signer` MUST be empty; `signature` is arbitrary bytes, EVM-readable via
-  `SIGPARAM` param `0x04`. No ECDSA rules apply.
-- SECP256K1 — `signature = v||r||s`, 65 bytes; `v` is a **bare recovery id (`v <= 1`, not the
-  EVM's 27/28)**; `0 < r < SECP256K1N`; `s` low (`0 < s <= SECP256K1N/2`).
-- P256 — `signature = r||s||qx||qy`, 128 bytes; `0 < r < SECP256R1N`; `0 < s <= SECP256R1N/2`.
-  `P256VERIFY` itself accepts high-`s`, so the signer must normalize `s` to `n - s` before use.
-
-These are **consensus rules**, checked in `validate_frame_signatures` before any frame executes.
-A high-`s` or 27/28-encoded signature makes the whole transaction invalid, not merely
-unrelayable — which makes them a correctness requirement of this library, not a lint.
-
-An empty `signer` resolves to `tx.sender` for SECP256K1 and P256, including for EVM
-introspection.
-
-### Signing
-
-`signFrameTx(tx, signer)` takes either a raw private key or a `FrameAccount` —
-`{ address, sign }`, satisfied by viem's `privateKeyToAccount` and `mnemonicToAccount`, by a
-`toAccount` source, and by any wrapper around a hardware wallet, an HSM or a remote signer.
-It signs exactly the entries that are SECP256K1 with an empty `msg`, over `sig_hash`, and
-refuses when an entry's resolved signer is not the account's address — otherwise the result
-would recover to the wrong address and be rejected at consensus with no local error.
-
-**Raw-digest signing is required.** `signMessage` prefixes its argument per EIP-191, so it
-cannot produce a signature over `sig_hash`, and a `JsonRpcAccount` cannot sign a raw digest
-at all. Both are refused with an error rather than silently producing an unrecoverable
-signature. `sign` is typed optional because it is optional on viem's own `LocalAccount`;
-the check is at runtime.
-
-**A returned `v` is normalized, not assumed.** viem returns 27/28; HSMs and hand-rolled
-wrappers commonly return a bare 0/1. Both are accepted. An EIP-155 `v` is refused: it
-encodes a chain id this layout has no room for, and guessing at its parity would forge a
-recovery id. Subtracting 27 unconditionally — the obvious implementation — writes `0x-1a…`
-into the signature, malformed hex that surfaces only as a byte-alignment error naming the
-wrong problem.
-
-This does not widen §2's out-of-scope line on key management. The account form holds no key
-material; it delegates key management to the caller instead of doing any.
-
-### Structural limits
-
-| Constant | Value | Source |
-|---|---|---|
-| `FRAME_TX_MAX_FRAMES` | 64 | `transaction.rs:2209` |
-| `FRAME_TX_MAX_NONCE_KEYS` | 16 | `transaction.rs:2211` |
-| `FRAME_TX_MAX_RECENT_ROOT_REFERENCES` | 16 | `transaction.rs:2213` |
-| `FRAME_TX_EXPIRY_DATA_LENGTH` | 8 | `transaction.rs:2273` |
-
-`nonce_keys` rules (`transaction.rs:2679-2694`): between 1 and 16 entries; strictly increasing;
-if more than one entry, the first may not be zero. Frame `value` must be zero unless the frame
-is SENDER. Frame `flags` bits 0-1 are the APPROVE scope restriction, bit 2 the atomic-batch
-flag, bits 3-7 reserved and must be zero.
-
-EIP-8272 window: `RECENT_ROOT_LENGTH = 8192`, and a declared reference is valid iff
-`1 <= current_slot - slot <= 8191`. Domain separators are `keccak256("RECENT_ROOT_ENTRY")` and
-`keccak256("RECENT_ROOT_STORAGE")`.
-
-## 4. The gas model
-
-Transcribed from `crates/common/types/transaction.rs`, which is the branch's current
-(post-`77e502ef4`) behaviour. Every constant is written as its published figure.
-
-```
-value_transfer_cost = Σ 6000  over frames where value != 0
-                                 AND target is present
-                                 AND target != sender
-
-signature_verification_cost = Σ per signature: ARBITRARY 100, SECP256K1 2800, P256 6700
-
-mandatory_gas = 12000
-              + 475 * len(frames)
-              + signature_verification_cost
-              + value_transfer_cost
-
-billed_bytes = concat( frame.data for each frame,
-                       sig.signer, sig.msg, sig.signature for each signature,
-                       nonce_calldata,
-                       recent_root_calldata )
-
-nonce_calldata       = rlp(nonce_keys) || rlp(nonce_seq)
-recent_root_calldata = rlp(recent_root_references), or empty when no reference is declared
-
-data_cost = Σ over billed_bytes: 4 if byte == 0 else 16
-
-recent_root_reference_intrinsic_gas = 0                              when no references
-                                    = 2400 + 2002 * len(references)  otherwise
-
-frame_tx_intrinsic_gas = mandatory_gas + data_cost + recent_root_reference_intrinsic_gas
-
-state_gas_limit    = Σ frame.limits.state
-standard_gas_limit = frame_tx_intrinsic_gas
-                   + Σ frame.limits.execution
-                   + state_gas_limit
-
-calldata_tokens      = len(billed_bytes) * 4
-calldata_floor_gas   = calldata_tokens * 16          # 64 gas per byte
-calldata_floor_total = mandatory_gas
-                     + recent_root_reference_intrinsic_gas
-                     + calldata_floor_gas
-
-max_gas  = max(standard_gas_limit, calldata_floor_total + state_gas_limit)
-max_cost = max_gas * max_fee_per_gas
-         + len(blob_versioned_hashes) * 131072 * blob_base_fee
+```text
+[scheme, signer, msg, signature]
 ```
 
-Four traps worth naming, because each is a place a reimplementation goes quietly wrong:
+All integer fields use canonical minimal big-endian RLP. Zero is the empty RLP string,
+not the byte `0x00`.
 
-1. **The RLP framing and the scalar fields are not billed** — only the byte fields listed in
-   `billed_bytes`. But `nonce_calldata` and `recent_root_calldata` *are* RLP encodings, and
-   their framing bytes are billed, because the EIP prices the bytes those EIPs add to the
-   payload.
-2. **`recent_root_calldata` is empty, not `rlp([])`, when no reference is declared**
-   (`transaction.rs:2538-2540`), so a reference-free transaction's gas is exactly the EIP-8141
-   figure. Encoding `rlp([])` here would add billed bytes to every transaction on the chain.
-3. **State gas sits outside the floor and is added on top of it** — `max_gas` takes
-   `calldata_floor_total + state_gas_limit`, not `calldata_floor_total`. Both bound an
-   execution-dimension resource, so the floor branch cannot absorb the state sum.
-4. **`frame_tx_intrinsic_gas` must be computed directly, never as
-   `total_gas_limit − frame budgets`**, because `total_gas_limit` may be the floor branch.
+## Signature hash
 
-The EIP-7825 per-transaction cap applies to a *different* quantity —
-`frame_tx_intrinsic_gas + Σ frame.limits.execution`, state excluded — and is checked separately.
+The canonical signature hash is `keccak256(0x06 || rlp(payload))` after replacing the
+raw `signature` bytes of every signature whose `msg` is empty with `0x`. Frames and all
+other fields remain unchanged. Because the signature commits to the envelope, any wire
+format change must update encoding, decoding, hashing, signing, and fixtures together.
 
-The published intrinsic is **12000**, down from an earlier 15000 (`transaction.rs:2189-2195`).
-`docs/eip-8141.md:362` in the ethrex branch still says 15000, and its formulas omit both
-`state_gas_limit` and `recent_root_reference_intrinsic_gas`. Second candidate contribution (§10).
+SECP256K1 signatures use `v || r || s`, with `v` normalized to a bare recovery id `0`
+or `1`. P256 and ARBITRARY entries are validated structurally but are not generated by
+`signFrameTx`.
 
-### Rule sets
+## Frame accounts
 
-The gas module takes a rule-set parameter. This is load-bearing, not generality for its own
-sake: the deployed nodes run ethrex `31b532266`, which carries two divergences from the pinned
-EIP text, so a single hardcoded model cannot be simultaneously correct and green against live
-data.
+`FrameAccountImplementation` follows viem's implementation/resolved-account split.
+It supplies:
 
-| Rule set | Meaning |
+- `getAddress()`
+- `getNonce({ blockTag? })`
+- `getValidationData({ calls, chainId, nonce })`
+- `signFrameTransaction(transaction)`
+- an execution strategy
+
+`toEoaFrameAccount` implements protocol default-code validation for a code-less EOA.
+It reads the scalar nonce with `eth_getTransactionCount`, returns empty validation
+calldata, and installs one empty-message SECP256K1 signature entry.
+
+## Gas
+
+The mandatory gas terms are:
+
+```text
+12000
++ 475 * len(frames)
++ signature verification cost
++ 6000 for each value transfer to an explicit non-sender target
+```
+
+Signature verification costs are ARBITRARY `100`, SECP256K1 `2800`, and P256 `6700`.
+Calldata cost and the calldata floor cover frame `data` and each signature's `signer`,
+`msg`, and `signature` bytes. Envelope RLP, nonce, and other scalar fields are not
+billed data. State gas is added on top of the calldata-floor branch.
+
+The historical `'chain'`, `'pins'`, and `'head'` parameters remain accepted by gas
+helpers as compatibility aliases; they currently use the same rules.
+
+## Module boundaries
+
+| Module | Responsibility |
 |---|---|
-| `'chain'` | What `31b532266` does — the two live divergences included |
-| `'pins'` | The pinned EIP text: EIP-8141 `7d1c8bfb94`, EIP-8250 `e5cf246ff1`, EIP-8272 `0231fb05f5` |
-| `'head'` | Current drafts, for anticipating the next re-genesis |
+| `types` | Public frame transaction and account-independent types |
+| `rlp` | Canonical scalar and offset-aware RLP helpers |
+| `envelope` | Encode, decode, and structural validation |
+| `sighash` | Canonical signature hash |
+| `signatures` | Signature validation, recovery, and signing |
+| `accounts` | Generic frame accounts and the direct EOA adapter |
+| `gas` | Pure gas and maximum-cost accounting |
+| `rpc` | Frame transaction/receipt JSON parsing and optional simulation wrapper |
+| `viem` | viem client extension |
 
-The two divergences that separate `'chain'` from `'pins'`:
+`gas` deliberately does not depend on `envelope`; this keeps accounting independently
+testable. `envelope` does not depend on `signatures`; the reverse direction is allowed.
 
 - **`value_cost`** — the chain charges `TX_VALUE_COST` for every frame with `value > 0`; the
   pins charge it only when the frame has a target that is not `tx.sender`. A targetless or
@@ -276,30 +176,15 @@ The two divergences that separate `'chain'` from `'pins'`:
   divergence and affects validation-prefix replay rather than the gas model, so it is recorded
   but not modelled.
 
-What `'head'` changes, per the branch spec's "Changed upstream since the pins":
+The hermetic suite pins:
 
-- **EIP-8250** moves the first use of a keyed nonce from 20,000 execution gas, deducted from the
-  frame's remaining gas, to **97,920 state gas** charged during the payment `APPROVE`. A frame
-  consuming two fresh nullifier keys needs 195,840 of `limits.state` under `'head'` and none
-  here.
-- **EIP-8272** drops the envelope field, `TXPARAM 0x11` and `RECENTROOTREFLOAD` entirely,
-  carrying references instead as a leading VERIFY frame targeting
-  `0x0000000000000000000000000000000000008272`. Confirmed against upstream
-  `ethereum/EIPs` `eip-8272.md` @ `824cbc0b0` (2026-09-07): the "recent root verifier frame"
-  is `mode == VERIFY`, `target == RECENT_ROOT_ADDRESS`, `flags == 0`, `value == 0`,
-  `limits.state == 0`, and its data is `n` tuples of `source_id: bytes32 || slot: uint64_be
-  || root: bytes32` — `RECENT_ROOT_TUPLE_BYTES = 72` — with no selector or length prefix.
-  The spec adds **no** special intrinsic gas, warming rule, or block-gas exemption: the
-  frame is priced as ordinary EIP-8141 frame data plus one more `FRAME_TX_PER_FRAME_COST`.
-  This changes the *envelope*, not only the gas, so `'head'` cannot share the `'chain'`
-  encoder. `divergence.toHeadShape` applies the change as a transformation of the
-  transaction: the field is emptied and its contents prepended as one VERIFY frame with zero
-  limits, which the existing pricer then prices. `compareRuleSets` routes whichever side names `'head'`
-  through it. `gas` fabricates nothing and `frameTxGas(tx, 'head')` still refuses a
-  reference-carrying transaction, so the floor that zero `limits.execution` produces — the
-  one figure the spec does not pin, since it falls out of the `STATICCALL` and the per-tuple
-  `SLOAD`s — cannot be mistaken for a budget. No second serializer: the transform yields a
-  `FrameTransaction`, never bytes.
+- Ethrex v23's golden frame transaction bytes
+- Ethrex v23's canonical signature hash
+- strict canonical-RLP rejection and byte offsets
+- signature normalization and recovery
+- scalar nonce retrieval for EOAs
+- gas-accounting terms
+- RPC transaction and receipt formatting
 
 ## 5. Modules
 

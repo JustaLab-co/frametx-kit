@@ -1,5 +1,8 @@
 /**
- * Capture live type-0x06 transactions as test fixtures.
+ * Legacy fixture capture script for the retired chain-8141 envelope.
+ *
+ * Do not use this to produce current wire-format fixtures. The frames-devnet RPC
+ * does not expose the simulation method this historical capture flow requires.
  *
  * The public endpoint serves no raw transaction bytes — ethrex has no
  * `eth_getRawTransactionByHash`, and `debug_getRawTransaction` is refused by

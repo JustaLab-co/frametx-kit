@@ -142,7 +142,7 @@ function bareRecoveryId(v: bigint, index: number): bigint {
  * `signMessage` is deliberately not an accepted substitute: it prefixes its
  * argument per EIP-191, so it cannot produce a signature over a sig-hash.
  */
-export type FrameAccount = {
+export type FrameSigner = {
   address: Address
   sign?: ((parameters: { hash: Hex }) => Promise<Hex>) | undefined
 }
@@ -150,7 +150,7 @@ export type FrameAccount = {
 /**
  * Sign every empty-`msg` SECP256K1 entry over the transaction's sig-hash.
  *
- * Takes either a raw private key or a `FrameAccount` — a hardware wallet, a
+ * Takes either a raw private key or a `FrameSigner` — a hardware wallet, a
  * KMS, an HD account, anything that signs a digest for a known address.
  *
  * Idempotent: the sig-hash elides empty-`msg` signature bytes, so re-signing an
@@ -158,7 +158,7 @@ export type FrameAccount = {
  */
 export async function signFrameTx(
   tx: FrameTransaction,
-  signer: Hex | FrameAccount,
+  signer: Hex | FrameSigner,
 ): Promise<FrameTransaction> {
   const account = typeof signer === 'string' ? privateKeyToAccount(signer) : signer
   if (typeof account.sign !== 'function')

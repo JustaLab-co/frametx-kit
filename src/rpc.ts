@@ -5,7 +5,6 @@ import type {
   FrameMode,
   FrameSignature,
   FrameTransaction,
-  RecentRootReference,
   SigScheme,
 } from './types.js'
 
@@ -15,8 +14,7 @@ export type RpcFrameTransaction = {
   /** Present on `eth_getTransactionByHash` and hydrated blocks; absent on hand-written fixtures. */
   hash?: Hex
   chainId: Hex
-  nonceKeys: readonly Hex[]
-  nonceSeq: Hex
+  nonce: Hex
   sender: Address
   frames: readonly {
     mode: Hex
@@ -38,7 +36,6 @@ export type RpcFrameTransaction = {
   maxFeePerGas: Hex
   maxFeePerBlobGas: Hex
   blobVersionedHashes: readonly Hex[]
-  recentRootReferences: readonly { sourceId: Hex; slot: Hex; root: Hex }[]
 }
 
 /** EIP-8141 frame receipt status: 0 failure, 1 success, 2 skipped (atomic-batch failure). */
@@ -127,14 +124,9 @@ export function parseRpcFrameTransaction(json: RpcFrameTransaction): FrameTransa
     signature: s.signature,
   }))
 
-  const recentRootReferences: RecentRootReference[] = json.recentRootReferences.map(
-    (r) => ({ sourceId: r.sourceId, slot: BigInt(r.slot), root: r.root }),
-  )
-
   return {
     chainId: BigInt(json.chainId),
-    nonceKeys: json.nonceKeys.map((k) => BigInt(k)),
-    nonceSeq: BigInt(json.nonceSeq),
+    nonce: BigInt(json.nonce),
     sender: getAddress(json.sender),
     frames,
     signatures,
@@ -142,7 +134,6 @@ export function parseRpcFrameTransaction(json: RpcFrameTransaction): FrameTransa
     maxFeePerGas: BigInt(json.maxFeePerGas),
     maxFeePerBlobGas: BigInt(json.maxFeePerBlobGas),
     blobVersionedHashes: [...json.blobVersionedHashes],
-    recentRootReferences,
   }
 }
 

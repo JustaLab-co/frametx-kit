@@ -3,7 +3,6 @@ import type {
   Frame,
   FrameSignature,
   FrameTransaction,
-  RecentRootReference,
   FrameLimits,
   FrameMode,
   SigScheme,
@@ -31,17 +30,12 @@ function encodeSignature(sig: FrameSignature): RlpTree {
   return [rlpUint(BigInt(sig.scheme)), sig.signer ?? '0x', sig.msg, sig.signature]
 }
 
-function encodeRecentRootReference(ref: RecentRootReference): RlpTree {
-  return [ref.sourceId, rlpUint(ref.slot), ref.root]
-}
-
 /** The RLP body, without the `0x06` type prefix. */
 export function encodeFrameTxBody(tx: FrameTransaction): Hex {
   return toRlp(
     [
       rlpUint(tx.chainId),
-      tx.nonceKeys.map(rlpUint),
-      rlpUint(tx.nonceSeq),
+      rlpUint(tx.nonce),
       tx.sender,
       tx.frames.map(encodeFrame),
       tx.signatures.map(encodeSignature),
@@ -51,7 +45,6 @@ export function encodeFrameTxBody(tx: FrameTransaction): Hex {
         rlpUint(tx.maxFeePerBlobGas),
       ],
       tx.blobVersionedHashes,
-      tx.recentRootReferences.map(encodeRecentRootReference),
     ] satisfies RlpTree,
     'hex',
   )
@@ -143,20 +136,6 @@ function decodeSignature(node: RlpNode): FrameSignature {
   }
 }
 
-function decodeRecentRootReference(node: RlpNode): RecentRootReference {
-  const r = asList(node, 'recentRootReference')
-  if (r.length !== 3)
-    throw new FrameDecodeError(
-      `recentRootReference must have 3 fields, got ${r.length}`,
-      node.start,
-    )
-  return {
-    sourceId: asHex(r[0]!, 'recentRootReference.sourceId'),
-    slot: asUint(r[1]!, 'recentRootReference.slot'),
-    root: asHex(r[2]!, 'recentRootReference.root'),
-  }
-}
-
 function decodeFields(
   fields: readonly RlpNode[],
   fees: readonly RlpNode[],
@@ -164,19 +143,15 @@ function decodeFields(
 ): FrameTransaction {
   return {
     chainId: asUint(fields[0]!, 'chainId'),
-    nonceKeys: asList(fields[1]!, 'nonceKeys').map((k) => asUint(k, 'nonceKeys[]')),
-    nonceSeq: asUint(fields[2]!, 'nonceSeq'),
+    nonce: asUint(fields[1]!, 'nonce'),
     sender,
-    frames: asList(fields[4]!, 'frames').map(decodeFrame),
-    signatures: asList(fields[5]!, 'signatures').map(decodeSignature),
+    frames: asList(fields[3]!, 'frames').map(decodeFrame),
+    signatures: asList(fields[4]!, 'signatures').map(decodeSignature),
     maxPriorityFeePerGas: asUint(fees[0]!, 'maxPriorityFeePerGas'),
     maxFeePerGas: asUint(fees[1]!, 'maxFeePerGas'),
     maxFeePerBlobGas: asUint(fees[2]!, 'maxFeePerBlobGas'),
-    blobVersionedHashes: asList(fields[7]!, 'blobVersionedHashes').map((h) =>
+    blobVersionedHashes: asList(fields[6]!, 'blobVersionedHashes').map((h) =>
       asHex(h, 'blobVersionedHashes[]'),
-    ),
-    recentRootReferences: asList(fields[8]!, 'recentRootReferences').map(
-      decodeRecentRootReference,
     ),
   }
 }
@@ -218,22 +193,22 @@ export function decodeFrameTx(raw: Hex): FrameTransaction {
   }
 
   const fields = asList(tree, 'envelope')
-  if (fields.length !== 9)
+  if (fields.length !== 7)
     throw new FrameDecodeError(
-      `envelope must have 9 fields, got ${fields.length}`,
+      `envelope must have 7 fields, got ${fields.length}`,
       tree.start,
     )
 
-  const fees = asList(fields[6]!, 'fees')
+  const fees = asList(fields[5]!, 'fees')
   if (fees.length !== 3)
     throw new FrameDecodeError(
       `fees must have 3 fields, got ${fees.length}`,
-      fields[6]!.start,
+      fields[5]!.start,
     )
 
-  const sender = asAddressOrNull(fields[3]!, 'sender')
+  const sender = asAddressOrNull(fields[2]!, 'sender')
   if (sender === null)
-    throw new FrameDecodeError('sender may not be empty', fields[3]!.start)
+    throw new FrameDecodeError('sender may not be empty', fields[2]!.start)
 
   const tx = decodeFields(fields, fees, sender)
 
@@ -251,8 +226,6 @@ export function decodeFrameTx(raw: Hex): FrameTransaction {
 }
 
 export const MAX_FRAMES = 64
-export const MAX_NONCE_KEYS = 16
-export const MAX_RECENT_ROOT_REFERENCES = 16
 /** EIP-7594 per-transaction blob limit; frame transactions inherit it unchanged. */
 export const MAX_BLOBS_PER_TX = 6
 /** EIP-8141 expiry-verifier predeploy. A VERIFY frame targeting it is an expiry frame. */
@@ -328,13 +301,11 @@ function isExpiryVerifier(frame: Frame): boolean {
 }
 
 function assertFieldWidths(tx: FrameTransaction): void {
-  // These are the widths ethrex's decoder reads the fields at (`chain_id`,
-  // `nonce_seq`, both non-blob fees and `RecentRootReference::slot` are u64;
-  // `max_fee_per_blob_gas`, the nonce keys and `Frame::value` are U256).
+  // These are the widths ethrex's decoder reads the fields at.
   assertUint(tx.chainId, 64, 'chainId')
-  assertUint(tx.nonceSeq, 64, 'nonceSeq')
-  assertUint(tx.maxPriorityFeePerGas, 64, 'maxPriorityFeePerGas')
-  assertUint(tx.maxFeePerGas, 64, 'maxFeePerGas')
+  assertUint(tx.nonce, 64, 'nonce')
+  assertUint(tx.maxPriorityFeePerGas, 256, 'maxPriorityFeePerGas')
+  assertUint(tx.maxFeePerGas, 256, 'maxFeePerGas')
   assertUint(tx.maxFeePerBlobGas, 256, 'maxFeePerBlobGas')
 }
 
@@ -353,36 +324,8 @@ function assertFrameCount(tx: FrameTransaction): void {
 }
 
 function assertNonce(tx: FrameTransaction): void {
-  if (tx.nonceKeys.length < 1 || tx.nonceKeys.length > MAX_NONCE_KEYS)
-    throw new FrameEncodeError(
-      `nonceKeys must hold between 1 and ${MAX_NONCE_KEYS} entries, got ${tx.nonceKeys.length}`,
-    )
-  for (const [i, key] of tx.nonceKeys.entries()) assertUint(key, 256, `nonceKeys[${i}]`)
-  for (let i = 1; i < tx.nonceKeys.length; i++)
-    if (tx.nonceKeys[i - 1]! >= tx.nonceKeys[i]!)
-      throw new FrameEncodeError('nonceKeys must be strictly increasing')
-  if (tx.nonceKeys.length > 1 && tx.nonceKeys[0] === 0n)
-    throw new FrameEncodeError(
-      'the first nonce key may only be zero when it is the only key',
-    )
-  if (tx.nonceSeq >= U64_MAX)
-    throw new FrameEncodeError('nonceSeq must be below 2**64 - 1')
-}
-
-function assertRecentRootReferences(tx: FrameTransaction): void {
-  if (tx.recentRootReferences.length > MAX_RECENT_ROOT_REFERENCES)
-    throw new FrameEncodeError(
-      `at most ${MAX_RECENT_ROOT_REFERENCES} recent-root references, got ${tx.recentRootReferences.length}`,
-    )
-  // `source_id` and `root` are H256 in ethrex, decoded through the fixed
-  // `[u8; 32]` impl: any other length fails RLP decode with InvalidLength.
-  for (const [i, ref] of tx.recentRootReferences.entries()) {
-    if (checkedByteLength(ref.sourceId, `recentRootReference ${i}: sourceId`) !== 32)
-      throw new FrameEncodeError(`recentRootReference ${i}: sourceId must be 32 bytes`)
-    if (checkedByteLength(ref.root, `recentRootReference ${i}: root`) !== 32)
-      throw new FrameEncodeError(`recentRootReference ${i}: root must be 32 bytes`)
-    assertUint(ref.slot, 64, `recentRootReference ${i}: slot`)
-  }
+  if (tx.nonce >= U64_MAX)
+    throw new FrameEncodeError('nonce must be below 2**64 - 1')
 }
 
 function assertBlobs(tx: FrameTransaction): void {
@@ -510,7 +453,6 @@ export function validateFrameTx(tx: FrameTransaction): void {
   assertSender(tx)
   assertFrameCount(tx)
   assertNonce(tx)
-  assertRecentRootReferences(tx)
   assertBlobs(tx)
   assertSignatures(tx)
   assertFrames(tx)

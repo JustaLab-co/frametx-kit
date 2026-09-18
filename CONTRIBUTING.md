@@ -11,8 +11,8 @@ frame transactions as the hegota-testnet chain (chain ID `8141`) accepts them. T
 envelope is a composition of three draft EIPs that none of them specifies on its own:
 EIP-8141 frames, EIP-8250 keyed nonces, EIP-8272 recent-root references.
 
-It is a deliberate second implementation. The reference client is
-[ethrex, on its `hegota-testnet` branch](https://github.com/lambdaclass/ethrex/tree/hegota-testnet),
+It is a deliberate second implementation. The migration is pinned against
+[ethrex commit `d587cf9`](https://github.com/lambdaclass/ethrex/tree/d587cf9ff0996315381c4b2784a4d7d499decc0f),
 and this library exists partly to disagree with it usefully. Every `.rs`, `.py` and
 `docs/*.md` path cited in this repository's docs and comments — `transaction.rs`,
 `frame_tx_wire_tests.rs`, `frametx.py` and the rest — is a path in that repository, not in
@@ -46,15 +46,14 @@ interchangeable.
 
 ```bash
 bun run test        # hermetic, no network
-bun run test:live   # opt-in, hits rpc1.privacy.ethrex.xyz
+bun run test:live   # checks rpc1.frames.ethrex.xyz identity
 bun run typecheck
 bun run build       # tsup -> dist/, dual ESM + CJS with both declaration flavours
-bunx tsx scripts/capture-fixtures.ts [from-block] [to-block]
 ```
 
 CI runs `typecheck`, `test`, `build`, and then `@arethetypeswrong/cli --pack .` against
-the built package. All four must pass. The live suite is not expected to pass in every
-environment and is not a gate.
+the built package. All four must pass. The public frames RPC currently has no
+frame-aware simulation method, so there is no live simulation gate.
 
 That last check is there because a broken `exports` map or a mismatched `.d.cts` breaks
 every consumer while leaving the test suite entirely green — the tests import from `src/`,
@@ -81,7 +80,7 @@ authority; if the encoder disagrees with them, the encoder is wrong. Fixtures un
 
 **`src/gas.ts` must not import `src/envelope.ts`.** The gas model stays independently
 testable, so it can be independently wrong or independently right. The small duplication
-this causes (a `sameAddress` helper, the framing for two calldata blobs) is deliberate.
+this causes (for example, a `sameAddress` helper) is deliberate.
 `src/envelope.ts` must not import `src/signatures.ts`; the reverse direction is fine.
 
 **`encodeFrameTx` deliberately does not validate.** `frameTxSigHash` is defined over a
@@ -99,8 +98,6 @@ path is `assertValidFrameTx(tx)` then `encodeFrameTx(tx)`.
   signature makes the transaction invalid at consensus, not merely unrelayable.
 - **RLP scalars are minimal big-endian**; zero is the empty string `0x`, not `0x00`.
   Never pass viem's `numberToHex` into `toRlp`; use `rlpUint`.
-- **`recentRootCalldata` is empty (`0x`) when no reference is declared**, not `toRlp([])`
-  (`0xc0`). Getting this wrong adds billed bytes to every transaction on the chain.
 - **State gas is added on top of the calldata floor**, never absorbed by it.
 - **`limits` is always a two-element list**, including when `state` is zero.
 - **The frame's JSON field for the target is `to`, not `target`.** The node's `type` is
@@ -170,7 +167,7 @@ That means **your commit messages set the version**. Use
 Pull request titles are validated by CI against that list, with an optional scope from
 `envelope`, `sighash`, `signatures`, `gas`, `divergence`, `rlp`, `rpc`, `viem`,
 `fixtures`, `docs`, `deps`, `ci`, `repo` — for example
-`feat(gas): model the head EIP-8272 reference arm`. Subjects start lowercase.
+`fix(envelope): encode the scalar frame nonce`. Subjects start lowercase.
 
 Do not hand-edit `version` in `package.json` or touch `CHANGELOG.md`; the release commit
 owns both. A wire-format or gas change is almost always at least a `fix:`, because
@@ -184,10 +181,8 @@ someone downstream is encoding bytes with this.
   published figure, a golden vector, or captured chain data, not to the code's own output.
 - If you touched anything in **Rules that are not style preferences**, say why in the PR
   description. Those changes are not refused, but they are argued.
-- Fixtures expire. They record the client version and genesis hash they were captured
-  against and the oracle suite asserts the genesis hash, so a re-genesis fails loudly.
-  This chain is already on its third genesis; re-capture with the script rather than
-  hand-editing.
+- Files under `test/fixtures/chain` are archived captures from the superseded envelope.
+  Do not use them as current wire-format oracles.
 
 ## Where the rest of the docs are
 
