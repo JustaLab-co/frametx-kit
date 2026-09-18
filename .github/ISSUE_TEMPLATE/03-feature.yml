@@ -1,0 +1,45 @@
+name: Feature or coverage request
+description: Something the wire format does that this library cannot do yet.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check `docs/OPEN-ITEMS.md` first. Known gaps are already recorded there, and a comment on the matching item is more useful than a new issue.
+  - type: textarea
+    id: need
+    attributes:
+      label: What you are trying to do
+      description: The task, not the API. A concrete transaction you cannot build or survey is the strongest case.
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: The API you have in mind
+      description: Optional, and a sketch is fine.
+      render: ts
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - envelope
+        - sighash
+        - signatures
+        - gas
+        - divergence
+        - rlp
+        - rpc
+        - viem
+        - fixtures
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: Where the behaviour is specified
+      description: The EIP section, the ethrex path on its `hegota-testnet` branch, or the node response that defines what correct means. Anything added here needs an oracle that is not the code's own output.
+    validations:
+      required: true

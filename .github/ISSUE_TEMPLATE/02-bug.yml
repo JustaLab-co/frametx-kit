@@ -1,0 +1,69 @@
+name: Bug report
+description: The library behaves differently from its documentation, throws where it should not, or fails to type-check.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If the disagreement is with the ethrex node rather than with this library's own documentation, use the divergence report instead.
+
+        If it lets someone produce a transaction a signer did not intend, file a private advisory instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Point at the README, `docs/DESIGN.md` or `CONTRIBUTING.md` line if one of them promises the other behaviour.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The smallest snippet that shows it. A transaction hash or a hex blob is worth more than a description.
+      render: ts
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Error or output
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: frametx-kit version
+      placeholder: 0.1.1
+    validations:
+      required: true
+  - type: input
+    id: viem
+    attributes:
+      label: viem version
+      description: viem is a peer dependency, and a duplicated copy of it is a common cause of type errors around `client.extend`.
+      placeholder: 2.21.0
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime and package manager
+      placeholder: bun 1.3.2, or node 22.8 with pnpm 10.16
+    validations:
+      required: true
+  - type: dropdown
+    id: entry
+    attributes:
+      label: Which entry point
+      options:
+        - '@jaw.id/frametx-kit'
+        - '@jaw.id/frametx-kit/viem'
+        - Both
+        - Not relevant
+    validations:
+      required: true

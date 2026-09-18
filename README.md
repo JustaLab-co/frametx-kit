@@ -2,6 +2,8 @@
 
 [![npm](https://img.shields.io/npm/v/%40jaw.id%2Fframetx-kit)](https://www.npmjs.com/package/@jaw.id/frametx-kit)
 [![CI](https://github.com/JustaName-id/frametx-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/JustaName-id/frametx-kit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/JustaName-id/frametx-kit/badge)](https://scorecard.dev/viewer/?uri=github.com/JustaName-id/frametx-kit)
 
 TypeScript for **EIP-8141 frame transactions** as hegota-testnet (chain ID `8141`)
 actually accepts them: the composed envelope that also carries EIP-8250 keyed nonces
@@ -156,12 +158,26 @@ genesis hash it was taken against, so a re-genesis fails loudly rather than sile
 Contributions welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first — this wire format
 has traps, and several things in `src/` that look like code smells are load-bearing.
 
+The most valuable report is a disagreement with the reference client. If this library and
+ethrex produce different bytes, a different hash, a different price or a different receipt,
+open a [divergence report](https://github.com/JustaName-id/frametx-kit/issues/new?template=01-divergence.yml)
+with the transaction hash or the byte vector. That is what a second implementation is for.
+
+Anything that could let a transaction be authorised for something other than what it says
+goes to [`SECURITY.md`](SECURITY.md) and a private advisory instead of a public issue.
+
+Looking for somewhere to start? The issues labelled
+[good first issue](https://github.com/JustaName-id/frametx-kit/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
+are the coverage gaps that need a captured transaction rather than a design decision.
+
 ## Docs
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — architecture, invariants, wire-format traps, how
   the verification oracles work
 - [`docs/DESIGN.md`](docs/DESIGN.md) — the binding design spec
 - [`docs/OPEN-ITEMS.md`](docs/OPEN-ITEMS.md) — known gaps and unfinished work
+- [`SECURITY.md`](SECURITY.md) — what counts as a vulnerability here, and how to report it
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — expected conduct in issues and pull requests
 
 ## License
 
