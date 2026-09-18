@@ -18,6 +18,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          # release.yml passes this too, and it is the one input the release job
+          # uses that no pull request would otherwise exercise: it writes the
+          # .npmrc that npm publish authenticates with. Passing it here writes
+          # the same file and publishes nothing, so a setup-node bump that broke
+          # the publish path fails on the PR instead of on the release.
+          registry-url: https://registry.npmjs.org
 
       - uses: oven-sh/setup-bun@v2
         with:
