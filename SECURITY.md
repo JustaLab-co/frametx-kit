@@ -2,7 +2,7 @@
 
 ## Reporting
 
-Report privately through [GitHub's advisory form](https://github.com/JustaName-id/frametx-kit/security/advisories/new). Do not open a public issue for anything listed as in scope below.
+Report privately through [GitHub's advisory form](https://github.com/JustaLab-co/frametx-kit/security/advisories/new). Do not open a public issue for anything listed as in scope below.
 
 Include the transaction hash, the raw bytes, or the smallest snippet that shows the problem, plus the library version and the ethrex commit or endpoint you were talking to. The reports that get fixed fastest are the ones that come with bytes.
 

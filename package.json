@@ -40,12 +40,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JustaName-id/frametx-kit.git"
+    "url": "git+https://github.com/JustaLab-co/frametx-kit.git"
   },
   "bugs": {
-    "url": "https://github.com/JustaName-id/frametx-kit/issues"
+    "url": "https://github.com/JustaLab-co/frametx-kit/issues"
   },
-  "homepage": "https://github.com/JustaName-id/frametx-kit#readme",
+  "homepage": "https://github.com/JustaLab-co/frametx-kit#readme",
   "publishConfig": {
     "access": "public",
     "provenance": true
