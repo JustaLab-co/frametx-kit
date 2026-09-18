@@ -59,10 +59,8 @@
   "keywords": [
     "ethereum",
     "eip-8141",
-    "eip-8250",
-    "eip-8272",
     "frame-transaction",
-    "hegota-testnet",
+    "frames-devnet",
     "ethrex",
     "viem",
     "rlp"
@@ -70,8 +68,8 @@
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
-    "test:watch": "vitest",
     "test:live": "FRAMES_LIVE=1 vitest run test/live",
+    "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {

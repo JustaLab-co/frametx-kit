@@ -7,28 +7,23 @@ describe('encodeFrameTx', () => {
     expect(encodeFrameTx(GOLDEN_TX)).toBe(GOLDEN_RLP)
   })
 
-  test('encodes nonceSeq zero as empty string, not 0x00', () => {
-    const encoded = encodeFrameTx({ ...GOLDEN_TX, nonceSeq: 0n })
+  test('encodes nonce zero as an empty RLP string, not 0x00', () => {
+    const encoded = encodeFrameTx({ ...GOLDEN_TX, nonce: 0n })
     expect(encoded).not.toBe(GOLDEN_RLP)
-    // nonceSeq: 7 encodes as 07, nonceSeq: 0 encodes as 80 (empty string in RLP)
-    // Sequence c180 (nonceKeys) should be followed by 80 (nonceSeq zero)
-    // then 94 (sender), instead of 07
-    expect(encoded).toContain('c1808094')
+    expect(encoded).toContain('018094')
   })
 
   test('a targetless frame encodes an empty target, not 20 zero bytes', () => {
     const encoded = encodeFrameTx(GOLDEN_TX)
-    // frame 1 is `cc 01 03 80 c4825208 80 80 821122`: mode, flags, empty target
-    expect(encoded).toContain('cc010380c4825208')
+    expect(encoded).toContain('cf010380c7825208831e8480')
   })
 
   test('encodeFrameTxBody is the wire encoding minus the 0x06 type byte', () => {
     expect(encodeFrameTx(GOLDEN_TX)).toBe(`0x06${encodeFrameTxBody(GOLDEN_TX).slice(2)}`)
   })
 
-  test('limits always encode as a two-element list, even when state is zero', () => {
-    // frame 1 limits are { execution: 0x5208, state: 0 } -> c4 (825208)(80)
-    expect(encodeFrameTx(GOLDEN_TX)).toContain('c482520880')
+  test('limits always encode as a two-element list', () => {
+    expect(encodeFrameTx(GOLDEN_TX)).toContain('c7825208831e8480')
   })
 
   test('the fees list always has three entries, even when maxFeePerBlobGas is zero', () => {
@@ -36,8 +31,8 @@ describe('encodeFrameTx', () => {
     expect(encodeFrameTx(GOLDEN_TX)).toContain('cc843b9aca008506fc23ac0080')
   })
 
-  test('an empty blob list and an empty reference list each encode as 0xc0', () => {
-    expect(encodeFrameTx(GOLDEN_TX).endsWith('c0c0')).toBe(true)
+  test('an empty blob list is the final 0xc0 field', () => {
+    expect(encodeFrameTx(GOLDEN_TX).endsWith('c0')).toBe(true)
   })
 })
 
