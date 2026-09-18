@@ -1,9 +1,9 @@
 # frametx-kit
 
 [![npm](https://img.shields.io/npm/v/%40jaw.id%2Fframetx-kit)](https://www.npmjs.com/package/@jaw.id/frametx-kit)
-[![CI](https://github.com/JustaName-id/frametx-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/JustaName-id/frametx-kit/actions/workflows/ci.yml)
+[![CI](https://github.com/JustaLab-co/frametx-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/JustaLab-co/frametx-kit/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/JustaName-id/frametx-kit/badge)](https://scorecard.dev/viewer/?uri=github.com/JustaName-id/frametx-kit)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/JustaLab-co/frametx-kit/badge)](https://scorecard.dev/viewer/?uri=github.com/JustaLab-co/frametx-kit)
 
 TypeScript for **EIP-8141 frame transactions** as hegota-testnet (chain ID `8141`)
 actually accepts them: the composed envelope that also carries EIP-8250 keyed nonces
@@ -160,14 +160,14 @@ has traps, and several things in `src/` that look like code smells are load-bear
 
 The most valuable report is a disagreement with the reference client. If this library and
 ethrex produce different bytes, a different hash, a different price or a different receipt,
-open a [divergence report](https://github.com/JustaName-id/frametx-kit/issues/new?template=01-divergence.yml)
+open a [divergence report](https://github.com/JustaLab-co/frametx-kit/issues/new?template=01-divergence.yml)
 with the transaction hash or the byte vector. That is what a second implementation is for.
 
 Anything that could let a transaction be authorised for something other than what it says
 goes to [`SECURITY.md`](SECURITY.md) and a private advisory instead of a public issue.
 
 Looking for somewhere to start? The issues labelled
-[good first issue](https://github.com/JustaName-id/frametx-kit/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
+[good first issue](https://github.com/JustaLab-co/frametx-kit/issues?q=is%3Aopen+label%3A%22good+first+issue%22)
 are the coverage gaps that need a captured transaction rather than a design decision.
 
 ## Docs

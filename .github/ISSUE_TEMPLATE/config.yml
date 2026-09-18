@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/JustaName-id/frametx-kit/security/advisories/new
+    url: https://github.com/JustaLab-co/frametx-kit/security/advisories/new
     about: Signature layout, sig-hash, encoder or gas-accounting flaws go through a private advisory, not a public issue. See SECURITY.md.
   - name: A bug in the ethrex node itself
     url: https://github.com/lambdaclass/ethrex/issues
     about: If the reference client is the side that is wrong, it belongs upstream. Open a divergence report here too so we record it.
   - name: How do I use this
-    url: https://github.com/JustaName-id/frametx-kit#readme
+    url: https://github.com/JustaLab-co/frametx-kit#readme
     about: The README covers the API and the two behaviours that surprise people most. CONTRIBUTING.md covers the wire-format traps.
