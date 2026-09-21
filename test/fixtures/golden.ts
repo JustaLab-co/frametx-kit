@@ -67,10 +67,10 @@ export const GOLDEN_RPC_JSON = {
   nonce: '0x7',
   sender: '0x000000000000000000000000000000000000abcd',
   frames: [
-    { mode: '0x1', flags: '0x3', to: null, gasLimit: '0x5208', stateLimit: '0x1e8480',
+    { mode: '0x1', flags: '0x3', to: null, gasLimit: '0x5208', stateGasLimit: '0x1e8480',
       value: '0x0', data: '0x1122' },
     { mode: '0x2', flags: '0x0', to: '0x0000000000000000000000000000000000001234',
-      gasLimit: '0x9c40', stateLimit: '0x0', value: '0x0', data: '0x' },
+      gasLimit: '0x9c40', stateGasLimit: '0x0', value: '0x0', data: '0x' },
   ],
   signatures: [
     { scheme: '0x1', signer: '0x000000000000000000000000000000000000abcd', msg: '0x',

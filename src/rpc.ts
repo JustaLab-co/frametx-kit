@@ -22,7 +22,7 @@ export type RpcFrameTransaction = {
     /** The node calls this `to`, not `target`. */
     to: Address | null
     gasLimit: Hex
-    stateLimit: Hex
+    stateGasLimit: Hex
     value: Hex
     data: Hex
   }[]
@@ -112,7 +112,7 @@ export function parseRpcFrameTransaction(json: RpcFrameTransaction): FrameTransa
     mode: toMode(f.mode),
     flags: Number(BigInt(f.flags)),
     target: f.to === null ? null : getAddress(f.to),
-    limits: { execution: BigInt(f.gasLimit), state: BigInt(f.stateLimit) },
+    limits: { execution: BigInt(f.gasLimit), state: BigInt(f.stateGasLimit) },
     value: BigInt(f.value),
     data: f.data,
   }))
