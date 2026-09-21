@@ -1,3 +1,10 @@
+# [0.2.0](https://github.com/JustaLab-co/frametx-kit/compare/v0.1.1...v0.2.0) (2026-09-21)
+
+
+### Features
+
+* add frame accounts, transaction preparation and account-aware signing ([#24](https://github.com/JustaLab-co/frametx-kit/issues/24)) ([882b3cd](https://github.com/JustaLab-co/frametx-kit/commit/882b3cd87449e6cb139ab27933955068ab37e966))
+
 ## [0.1.1](https://github.com/JustaLab-co/frametx-kit/compare/v0.1.0...v0.1.1) (2026-09-15)
 
 
