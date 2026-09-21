@@ -5,9 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/JustaLab-co/frametx-kit/badge)](https://scorecard.dev/viewer/?uri=github.com/JustaLab-co/frametx-kit)
 
-TypeScript for **EIP-8141 frame transactions** as hegota-testnet (chain ID `8141`)
-actually accepts them: the composed envelope that also carries EIP-8250 keyed nonces
-and EIP-8272 recent-root references.
+TypeScript for the current **EIP-8141 frame transaction** envelope implemented by
+the Ethrex frames devnet (chain ID `81410`).
 
 Decode, build, hash, sign, price, dry-run and broadcast.
 
@@ -27,7 +26,7 @@ import { createPublicClient, http } from 'viem'
 import { frameActions } from '@jaw.id/frametx-kit/viem'
 
 const client = createPublicClient({
-  transport: http('https://rpc1.privacy.ethrex.xyz'),
+  transport: http('https://rpc1.frames.ethrex.xyz'),
 }).extend(frameActions)
 
 const tx = await client.getFrameTransaction({ hash })
@@ -46,7 +45,7 @@ assertValidFrameTx(signed)
 const raw = encodeFrameTx(signed)
 ```
 
-`signFrameTx` also takes an account instead of a key — anything with an `address` and a
+`signFrameTx` also takes a `FrameSigner` instead of a key — anything with an `address` and a
 raw-digest `sign`, which covers viem's `privateKeyToAccount` and `mnemonicToAccount`, a
 `toAccount` source, and your own wrapper around a hardware wallet, an HSM or a remote
 signer. It signs every SECP256K1 entry whose `msg` is empty, and refuses if the entry's
@@ -98,44 +97,16 @@ the node's decoded JSON, re-encodes it, and refuses to return anything whose re-
 does not reproduce the transaction hash. What you get back is a transaction this library
 can put back on the wire byte-for-byte.
 
-## Gas and rule sets
+## Gas
 
-Gas is priced under one of three rule sets, because the deployed binary and the pinned
-EIP text disagree:
-
-| Rule set | Meaning |
-|---|---|
-| `'chain'` | ethrex `31b532266`, what the nodes actually run |
-| `'pins'` | the pinned EIP text |
-| `'head'` | current drafts, for anticipating the next re-genesis |
+`frameTxGas` prices the current EIP-8141 transaction shape. The historical
+`'chain'`, `'pins'`, and `'head'` rule-set names remain accepted as compatibility
+aliases and currently produce identical results.
 
 ```ts
 import { compareRuleSets, decodeFrameTx } from '@jaw.id/frametx-kit'
 console.log(compareRuleSets(decodeFrameTx(raw), 'chain', 'pins'))
 ```
-
-The head EIP-8272 draft alters the *envelope*, not just the price: the recent-root field
-is gone and references travel as a leading VERIFY frame against
-`0x0000000000000000000000000000000000008272`, 72 bytes each. `compareRuleSets` prices
-whichever side names `'head'` over `toHeadShape(tx)`, which applies exactly that change
-as a transformation of the transaction, so a reference-carrying transaction is surveyed
-rather than refused.
-
-```ts
-import { toHeadShape } from '@jaw.id/frametx-kit'
-compareRuleSets(tx, 'pins', 'head') // prices the head side over toHeadShape(tx)
-toHeadShape(tx) // the same transform on its own; identity when no reference is carried
-```
-
-The synthetic frame claims zero execution and state. Zero state is normative: the draft
-pins `limits.state` for the recent root verifier frame, along with its mode, target, flags
-and value. `limits.execution` is the one figure it leaves open — that falls out of the
-`STATICCALL` and one `SLOAD` per tuple — so every limit-derived term of the head price is
-still a floor, fine to compare against and wrong to budget with. That is why
-`frameTxGas(tx, 'head')` still throws for a reference-carrying transaction rather than
-hand you a floor that reads like a budget. `'head'` otherwise prices identically to
-`'pins'`; the EIP-8250 change it models is an execution-time charge against
-`limits.state`, published as `HEAD_KEYED_NONCE_STATE_GAS`.
 
 Every gas constant is written as its published figure rather than derived. ethrex's own
 suite missed its intrinsic dropping from 15000 to 12000 across 1372 tests by deriving the
@@ -145,13 +116,11 @@ expected value from the constant under test.
 
 ```bash
 bun run test        # hermetic, no network
-bun run test:live   # hits rpc1.privacy.ethrex.xyz
 bun run typecheck
 ```
 
-The default suite runs entirely off checked-in fixtures. Those are real transactions
-captured with `bunx tsx scripts/capture-fixtures.ts`; each records the client version and
-genesis hash it was taken against, so a re-genesis fails loudly rather than silently.
+The default suite is hermetic. Its golden RLP and signature hash are pinned to the
+current Ethrex `FrameTransaction` encoder.
 
 ## Contributing
 

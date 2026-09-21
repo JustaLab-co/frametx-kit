@@ -35,19 +35,10 @@ export type FrameSignature = {
   signature: Hex
 }
 
-export type RecentRootReference = {
-  /** 32 bytes. */
-  sourceId: Hex
-  slot: bigint
-  /** 32 bytes. */
-  root: Hex
-}
-
 export type FrameTransaction = {
   chainId: bigint
-  /** 1..16 entries, strictly increasing; if more than one, the first is non-zero. */
-  nonceKeys: bigint[]
-  nonceSeq: bigint
+  /** Sender account nonce, encoded as a scalar uint64. */
+  nonce: bigint
   sender: Address
   frames: Frame[]
   signatures: FrameSignature[]
@@ -55,18 +46,11 @@ export type FrameTransaction = {
   maxFeePerGas: bigint
   maxFeePerBlobGas: bigint
   blobVersionedHashes: Hex[]
-  recentRootReferences: RecentRootReference[]
 }
 
 /**
  * Which rule set to price under.
- * - 'chain' — ethrex 31b532266, the deployed binary, with its two live divergences.
- * - 'pins'  — the pinned EIP text: 8141 7d1c8bfb94, 8250 e5cf246ff1, 8272 0231fb05f5.
- * - 'head'  — current drafts, for anticipating the next re-genesis. Models only
- *   the EIP-8250 gas change; the EIP-8272 head draft changes the *envelope*
- *   (recent-root references become a leading VERIFY frame), not just the
- *   price, so `frameTxGas` refuses rather than guess at a reference-carrying
- *   transaction under `'head'`. Price one through `compareRuleSets`, which
- *   routes it via `toHeadShape`, or call that transform directly.
+ * Kept for API compatibility with the kit's gas helpers. The current frame
+ * transaction envelope has no keyed-nonce or recent-root extensions.
  */
 export type RuleSet = 'chain' | 'pins' | 'head'

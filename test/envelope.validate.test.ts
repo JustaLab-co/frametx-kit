@@ -60,28 +60,8 @@ describe('validateFrameTx', () => {
     expect(() => validateFrameTx(tx)).toThrow(/reserved/)
   })
 
-  test('rejects an empty nonceKeys list', () => {
-    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [] })).toThrow(/between 1 and 16/)
-  })
-
-  test('rejects non-increasing nonce keys', () => {
-    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [2n, 2n] })).toThrow(
-      /strictly increasing/,
-    )
-  })
-
-  test('rejects a leading zero key when there is more than one', () => {
-    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [0n, 1n] })).toThrow(
-      /first nonce key/,
-    )
-  })
-
-  test('accepts a lone zero key', () => {
-    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [0n] })).not.toThrow()
-  })
-
-  test('rejects nonceSeq at 2**64 - 1', () => {
-    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceSeq: 2n ** 64n - 1n })).toThrow(/nonceSeq/)
+  test('rejects nonce at 2**64 - 1', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonce: 2n ** 64n - 1n })).toThrow(/nonce/)
   })
 
   test('rejects more than 64 frames', () => {
@@ -173,55 +153,18 @@ describe('validateFrameTx: single-byte and 32-byte wire fields', () => {
     expect(() => validateFrameTx(tx)).toThrow(/flags.*one byte/)
   })
 
-  // `source_id` and `root` are H256 in ethrex, decoded through the fixed
-  // `[u8; 32]` impl, which fails with InvalidLength for any other size.
-  test('rejects a recent-root sourceId that is not 32 bytes', () => {
-    const tx = {
-      ...GOLDEN_TX,
-      recentRootReferences: [
-        { sourceId: `0x${'11'.repeat(31)}` as const, slot: 1n, root: `0x${'22'.repeat(32)}` as const },
-      ],
-    }
-    expect(() => validateFrameTx(tx)).toThrow(/sourceId must be 32 bytes/)
-  })
-
-  test('rejects a recent-root root that is not 32 bytes', () => {
-    const tx = {
-      ...GOLDEN_TX,
-      recentRootReferences: [
-        { sourceId: `0x${'11'.repeat(32)}` as const, slot: 1n, root: `0x${'22'.repeat(33)}` as const },
-      ],
-    }
-    expect(() => validateFrameTx(tx)).toThrow(/root must be 32 bytes/)
-  })
-
-  test('accepts a well-formed recent-root reference', () => {
-    const tx = {
-      ...GOLDEN_TX,
-      recentRootReferences: [
-        { sourceId: `0x${'11'.repeat(32)}` as const, slot: 1n, root: `0x${'22'.repeat(32)}` as const },
-      ],
-    }
-    expect(() => validateFrameTx(tx)).not.toThrow()
-  })
 })
 
 /**
  * ethrex's `FrameTransaction` decodes each numeric field at a fixed width —
- * `chain_id`, `nonce_seq`, `max_priority_fee_per_gas`, `max_fee_per_gas` and
- * `RecentRootReference::slot` as u64; `max_fee_per_blob_gas`, `nonce_keys[]`
- * and `Frame::value` as U256 — and `static_left_pad` returns `InvalidLength`
+ * `chain_id` and `nonce` as u64; all three fees and `Frame::value` as U256.
+ * `static_left_pad` returns `InvalidLength`
  * for anything wider. A wider value encodes to well-formed RLP here and then
  * cannot be decoded by the node at all, so it has to be caught on this side.
  */
 describe('validateFrameTx: numeric field widths', () => {
   const U64_MAX = 2n ** 64n - 1n
   const U256_MAX = 2n ** 256n - 1n
-  const REF = {
-    sourceId: `0x${'11'.repeat(32)}`,
-    root: `0x${'22'.repeat(32)}`,
-  } as const
-
   test('accepts chainId at 2**64 - 1', () => {
     expect(() => validateFrameTx({ ...GOLDEN_TX, chainId: U64_MAX })).not.toThrow()
   })
@@ -232,47 +175,25 @@ describe('validateFrameTx: numeric field widths', () => {
     )
   })
 
-  test('accepts maxPriorityFeePerGas at 2**64 - 1', () => {
+  test('accepts maxPriorityFeePerGas at 2**256 - 1', () => {
     expect(() =>
-      validateFrameTx({ ...GOLDEN_TX, maxPriorityFeePerGas: U64_MAX }),
+      validateFrameTx({ ...GOLDEN_TX, maxPriorityFeePerGas: U256_MAX }),
     ).not.toThrow()
   })
 
-  test('rejects maxPriorityFeePerGas at 2**64', () => {
+  test('rejects maxPriorityFeePerGas at 2**256', () => {
     expect(() =>
-      validateFrameTx({ ...GOLDEN_TX, maxPriorityFeePerGas: 2n ** 64n }),
-    ).toThrow(/maxPriorityFeePerGas must fit in 64 bits/)
+      validateFrameTx({ ...GOLDEN_TX, maxPriorityFeePerGas: 2n ** 256n }),
+    ).toThrow(/maxPriorityFeePerGas must fit in 256 bits/)
   })
 
-  test('accepts maxFeePerGas at 2**64 - 1', () => {
-    expect(() => validateFrameTx({ ...GOLDEN_TX, maxFeePerGas: U64_MAX })).not.toThrow()
+  test('accepts maxFeePerGas at 2**256 - 1', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, maxFeePerGas: U256_MAX })).not.toThrow()
   })
 
-  test('rejects maxFeePerGas at 2**64', () => {
-    expect(() => validateFrameTx({ ...GOLDEN_TX, maxFeePerGas: 2n ** 64n })).toThrow(
-      /maxFeePerGas must fit in 64 bits/,
-    )
-  })
-
-  test('accepts a recent-root slot at 2**64 - 1', () => {
-    const tx = { ...GOLDEN_TX, recentRootReferences: [{ ...REF, slot: U64_MAX }] }
-    expect(() => validateFrameTx(tx)).not.toThrow()
-  })
-
-  test('rejects a recent-root slot at 2**64', () => {
-    const tx = { ...GOLDEN_TX, recentRootReferences: [{ ...REF, slot: 2n ** 64n }] }
-    expect(() => validateFrameTx(tx)).toThrow(
-      /recentRootReference 0: slot must fit in 64 bits/,
-    )
-  })
-
-  test('accepts a nonce key at 2**256 - 1', () => {
-    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [U256_MAX] })).not.toThrow()
-  })
-
-  test('rejects a nonce key at 2**256', () => {
-    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [2n ** 256n] })).toThrow(
-      /nonceKeys\[0\] must fit in 256 bits/,
+  test('rejects maxFeePerGas at 2**256', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, maxFeePerGas: 2n ** 256n })).toThrow(
+      /maxFeePerGas must fit in 256 bits/,
     )
   })
 
@@ -325,28 +246,6 @@ describe('validateFrameTx: malformed hex fields throw FrameEncodeError', () => {
     }
     expect(() => validateFrameTx(tx)).toThrow(FrameEncodeError)
     expect(() => validateFrameTx(tx)).toThrow(/signature 0: msg/)
-  })
-
-  test('an odd-length recent-root sourceId', () => {
-    const tx = {
-      ...GOLDEN_TX,
-      recentRootReferences: [
-        { sourceId: `0x${'11'.repeat(31)}1` as const, slot: 1n, root: `0x${'22'.repeat(32)}` as const },
-      ],
-    }
-    expect(() => validateFrameTx(tx)).toThrow(FrameEncodeError)
-    expect(() => validateFrameTx(tx)).toThrow(/recentRootReference 0: sourceId/)
-  })
-
-  test('a non-hex recent-root root', () => {
-    const tx = {
-      ...GOLDEN_TX,
-      recentRootReferences: [
-        { sourceId: `0x${'11'.repeat(32)}` as const, slot: 1n, root: `0x${'zz'.repeat(32)}` as const },
-      ],
-    }
-    expect(() => validateFrameTx(tx)).toThrow(FrameEncodeError)
-    expect(() => validateFrameTx(tx)).toThrow(/recentRootReference 0: root/)
   })
 
   test('an odd-length frame data field', () => {

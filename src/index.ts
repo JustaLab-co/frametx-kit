@@ -1,5 +1,31 @@
 export * from './errors.js'
 export * from './types.js'
+export {
+  type DirectFrameExecution,
+  type FrameAccount,
+  type FrameAccountImplementation,
+  type FrameCall,
+  type GetFrameNonceParameters,
+  type GetValidationDataParameters,
+} from './accounts/types.js'
+export {
+  type ToFrameAccountParameters,
+  type ToFrameAccountReturnType,
+  toFrameAccount,
+} from './accounts/toFrameAccount.js'
+export {
+  type EoaFrameAccountImplementation,
+  type EoaFrameOwner,
+  type ToEoaFrameAccountParameters,
+  type ToEoaFrameAccountReturnType,
+  toEoaFrameAccount,
+} from './accounts/toEoaFrameAccount.js'
+export {
+  type PrepareFrameLimits,
+  type PrepareFrameTransactionOptions,
+  prepareFrameTransaction,
+} from './prepareFrameTransaction.js'
+export { signFrameTransaction } from './signFrameTransaction.js'
 export { rlpUint, parseRlpUint, byteLength } from './rlp.js'
 export {
   encodeFrameTx,
@@ -7,8 +33,6 @@ export {
   decodeFrameTx,
   validateFrameTx,
   MAX_FRAMES,
-  MAX_NONCE_KEYS,
-  MAX_RECENT_ROOT_REFERENCES,
   MAX_BLOBS_PER_TX,
   EXPIRY_VERIFIER,
 } from './envelope.js'
@@ -16,7 +40,7 @@ export { frameTxSigHash } from './sighash.js'
 export {
   SECP256K1_N,
   SECP256R1_N,
-  type FrameAccount,
+  type FrameSigner,
   assertCanonicalSignature,
   assertValidFrameTx,
   recoverFrameSigner,
@@ -28,24 +52,16 @@ export {
   FRAME_TX_PER_FRAME_COST,
   FRAME_TX_VALUE_COST,
   GAS_PER_BLOB,
-  RECENT_ROOT_REFERENCE_ADDRESS_GAS,
-  RECENT_ROOT_REFERENCE_GAS,
   SIG_VERIFY_COST,
   STANDARD_TOKEN_COST,
   TOTAL_COST_FLOOR_PER_TOKEN,
   type FrameGas,
   frameTxGas,
   frameTxMaxCost,
-  nonceCalldata,
-  recentRootCalldata,
 } from './gas.js'
 export {
-  HEAD_KEYED_NONCE_STATE_GAS,
-  HEAD_RECENT_ROOT_VERIFIER,
-  HEAD_REFERENCE_BYTES,
   type GasDivergence,
   compareRuleSets,
-  toHeadShape,
 } from './divergence.js'
 export {
   type FrameReceipt,

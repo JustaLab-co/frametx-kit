@@ -1,4 +1,4 @@
-# frametx-kit — open items
+# frametx-kit open items
 
 Known gaps and unfinished work, current as of ethrex `hegota-testnet` @ `19c065fa8`.
 The invariants and wire-format traps are in `../CONTRIBUTING.md`; `DESIGN.md` is the
