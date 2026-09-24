@@ -329,22 +329,30 @@ function assertFrameCount(tx: FrameTransaction): void {
 }
 
 /**
+ * The key-list half of `assertNonce`, which needs no sequence. Exported so that
+ * `prepareFrameTransaction` can refuse a bad key list before reading any nonces.
+ */
+export function assertNonceKeys(nonceKeys: readonly bigint[]): void {
+  if (nonceKeys.length < 1 || nonceKeys.length > MAX_NONCE_KEYS)
+    throw new FrameEncodeError(
+      `nonceKeys must hold between 1 and ${MAX_NONCE_KEYS} entries, got ${nonceKeys.length}`,
+    )
+  for (const [i, key] of nonceKeys.entries()) assertUint(key, 256, `nonceKeys[${i}]`)
+  for (let i = 1; i < nonceKeys.length; i++)
+    if (nonceKeys[i - 1]! >= nonceKeys[i]!)
+      throw new FrameEncodeError('nonceKeys must be strictly increasing')
+  if (nonceKeys.length > 1 && nonceKeys[0] === 0n)
+    throw new FrameEncodeError('nonce key 0 is only valid as the sole nonce key')
+}
+
+/**
  * EIP-8250 keyed-nonce rules, from `validate_static_constraints` at ethrex
  * `bdfc5d8`. Key `0` is the account nonce and cannot be mixed with non-zero
  * keys: a transaction either increments the account nonce or writes
  * `NONCE_MANAGER` slots, never both.
  */
 function assertNonce(tx: FrameTransaction): void {
-  if (tx.nonceKeys.length < 1 || tx.nonceKeys.length > MAX_NONCE_KEYS)
-    throw new FrameEncodeError(
-      `nonceKeys must hold between 1 and ${MAX_NONCE_KEYS} entries, got ${tx.nonceKeys.length}`,
-    )
-  for (const [i, key] of tx.nonceKeys.entries()) assertUint(key, 256, `nonceKeys[${i}]`)
-  for (let i = 1; i < tx.nonceKeys.length; i++)
-    if (tx.nonceKeys[i - 1]! >= tx.nonceKeys[i]!)
-      throw new FrameEncodeError('nonceKeys must be strictly increasing')
-  if (tx.nonceKeys.length > 1 && tx.nonceKeys[0] === 0n)
-    throw new FrameEncodeError('nonce key 0 is only valid as the sole nonce key')
+  assertNonceKeys(tx.nonceKeys)
   if (tx.nonceSeq >= U64_MAX)
     throw new FrameEncodeError('nonceSeq must be below 2**64 - 1')
 }

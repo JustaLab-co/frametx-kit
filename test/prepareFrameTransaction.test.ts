@@ -132,6 +132,28 @@ describe('prepareFrameTransaction', () => {
     ).rejects.toThrow(/different sequences: key 2 is at 1, key 3 is at 0/)
   })
 
+  test.each([
+    ['empty', [], /between 1 and 16 entries, got 0/],
+    ['too many', Array.from({ length: 17 }, (_, i) => BigInt(i + 1)), /between 1 and 16 entries, got 17/],
+    ['out of order', [2n, 1n], /strictly increasing/],
+    ['duplicated', [1n, 1n], /strictly increasing/],
+    ['key 0 with another key', [0n, 1n], /key 0 is only valid as the sole nonce key/],
+    ['negative', [-1n], /nonceKeys\[0\]/],
+  ])('refuses nonceKeys (%s) before making RPC requests', async (_, nonceKeys, message) => {
+    const { client, owner, requests } = testClient()
+    const account = await toEoaFrameAccount({ client, owner })
+
+    await expect(
+      prepareFrameTransaction(
+        account,
+        [{ to: owner.address, value: 0n, data: '0x' }],
+        { validation: { execution: 1n, state: 0n }, calls: [{ execution: 1n, state: 0n }] },
+        { nonceKeys },
+      ),
+    ).rejects.toThrow(message)
+    expect(requests).toEqual([])
+  })
+
   test('requires one call-limit entry per call', async () => {
     const { client, owner, requests } = testClient()
     const account = await toEoaFrameAccount({ client, owner })

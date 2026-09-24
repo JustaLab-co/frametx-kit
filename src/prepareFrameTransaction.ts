@@ -1,5 +1,5 @@
 import type { BlockTag, Chain, Hex } from 'viem'
-import { MAX_FRAMES } from './envelope.js'
+import { MAX_FRAMES, assertNonceKeys } from './envelope.js'
 import { FrameEncodeError } from './errors.js'
 import type { FrameAccount, FrameAccountImplementation, FrameCall } from './accounts/types.js'
 import type { FrameLimits, FrameTransaction } from './types.js'
@@ -17,7 +17,9 @@ export type PrepareFrameTransactionOptions = {
   /**
    * EIP-8250 nonce keys to consume. Defaults to `[0n]`, the account nonce. With
    * several keys, every key must currently sit at the same sequence, because one
-   * `nonceSeq` is matched against all of them.
+   * `nonceSeq` is matched against all of them. The list must also pass the
+   * static EIP-8250 rules: at most `MAX_NONCE_KEYS`, strictly increasing, and
+   * key `0` only on its own.
    */
   nonceKeys?: readonly bigint[] | undefined
 }
@@ -96,8 +98,7 @@ export async function prepareFrameTransaction<
 
   const blockTag = options.blockTag ?? 'pending'
   const nonceKeys = [...(options.nonceKeys ?? [0n])]
-  if (nonceKeys.length === 0)
-    throw new FrameEncodeError('nonceKeys must hold at least one key')
+  assertNonceKeys(nonceKeys)
   const [sequences, fees] = await Promise.all([
     Promise.all(nonceKeys.map((key) => account.getNonce({ key, blockTag }))),
     getFees(account, blockTag),
