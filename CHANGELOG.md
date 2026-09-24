@@ -1,3 +1,10 @@
+# [0.3.0](https://github.com/JustaLab-co/frametx-kit/compare/v0.2.0...v0.3.0) (2026-09-24)
+
+
+### Features
+
+* move to hegota-testnet (chain 8141) and EIP-8250 keyed nonces ([#25](https://github.com/JustaLab-co/frametx-kit/issues/25)) ([abe1bac](https://github.com/JustaLab-co/frametx-kit/commit/abe1bac8a8fd3035ddba7684ffbcfb1de2eff2b8))
+
 # [0.2.0](https://github.com/JustaLab-co/frametx-kit/compare/v0.1.1...v0.2.0) (2026-09-21)
 
 
