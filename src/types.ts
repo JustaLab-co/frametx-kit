@@ -53,10 +53,3 @@ export type FrameTransaction = {
   maxFeePerBlobGas: bigint
   blobVersionedHashes: Hex[]
 }
-
-/**
- * Which rule set to price under.
- * Kept for API compatibility with the kit's gas helpers. hegota-testnet prices
- * every frame transaction under one set of rules, so all three names are aliases.
- */
-export type RuleSet = 'chain' | 'pins' | 'head'

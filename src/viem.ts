@@ -14,7 +14,7 @@ import {
   simulateFrameTransaction,
 } from './rpc.js'
 import { assertValidFrameTx } from './signatures.js'
-import type { FrameTransaction, RuleSet } from './types.js'
+import type { FrameTransaction } from './types.js'
 
 /**
  * viem extension: `client.extend(frameActions)`.
@@ -137,14 +137,8 @@ export function frameActions(client: FrameRpcClient) {
       return sendRawFrameTransaction(client, encodeFrameTx(args.transaction))
     },
 
-    estimateFrameGas({
-      transaction,
-      rules = 'chain',
-    }: {
-      transaction: FrameTransaction
-      rules?: RuleSet
-    }): FrameGas {
-      return frameTxGas(transaction, rules)
+    estimateFrameGas({ transaction }: { transaction: FrameTransaction }): FrameGas {
+      return frameTxGas(transaction)
     },
   }
 }

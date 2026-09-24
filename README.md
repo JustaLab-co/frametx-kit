@@ -23,10 +23,12 @@ your client and this library have to be the same viem.
 
 ```ts
 import { createPublicClient, http } from 'viem'
+import { hegotaTestnet } from '@jaw.id/frametx-kit'
 import { frameActions } from '@jaw.id/frametx-kit/viem'
 
 const client = createPublicClient({
-  transport: http('https://rpc1.privacy.ethrex.xyz'),
+  chain: hegotaTestnet,
+  transport: http(),
 }).extend(frameActions)
 
 const tx = await client.getFrameTransaction({ hash })
@@ -111,14 +113,13 @@ can put back on the wire byte-for-byte.
 
 ## Gas
 
-`frameTxGas` prices the EIP-8141 transaction shape, including EIP-8250's nonce
-calldata. The historical
-`'chain'`, `'pins'`, and `'head'` rule-set names remain accepted as compatibility
-aliases and currently produce identical results.
+`frameTxGas` prices a transaction from its declared limits, including EIP-8250's nonce
+calldata, and `frameTxMaxCost` gives the most it can cost the payer.
 
 ```ts
-import { compareRuleSets, decodeFrameTx } from '@jaw.id/frametx-kit'
-console.log(compareRuleSets(decodeFrameTx(raw), 'chain', 'pins'))
+import { frameTxGas, frameTxMaxCost } from '@jaw.id/frametx-kit'
+const { intrinsicGas, maxGas } = frameTxGas(tx)
+const maxCost = frameTxMaxCost(tx, blobBaseFee)
 ```
 
 Every gas constant is written as its published figure rather than derived. ethrex's own

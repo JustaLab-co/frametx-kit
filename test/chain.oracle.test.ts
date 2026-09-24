@@ -45,14 +45,14 @@ describe.each(cases)('signatures and gas: %s', (_name, fixture) => {
   test("our maxCost equals the node's", () => {
     // Blob-free on this chain so far; the blob term needs the base fee at capture.
     expect(tx.blobVersionedHashes).toEqual([])
-    expect(frameTxMaxCost(tx, 0n, 'chain')).toBe(BigInt(fixture.simulate.maxCost))
+    expect(frameTxMaxCost(tx, 0n)).toBe(BigInt(fixture.simulate.maxCost))
   })
 
   // The calldata floor binds the regular dimension only; state gas goes on top.
   // Storage refunds are not itemized in frame receipts, so fixtures are chosen
   // from refund-free transactions and this stays an equality.
   test('gasUsed = max(intrinsic + sum of frame execution, floor) + sum of frame state', () => {
-    const gas = frameTxGas(tx, 'chain')
+    const gas = frameTxGas(tx)
     const { frameReceipts } = parseRpcFrameReceipt(fixture.receipt)
     const execution = frameReceipts.reduce((acc, f) => acc + f.gasUsed, 0n)
     const state = frameReceipts.reduce((acc, f) => acc + f.stateGasUsed, 0n)

@@ -134,9 +134,6 @@ non-zero key whose slot is still zero, and `NEW_ACCOUNT_STATE_GAS` (183,600) for
 from a sender that does not exist yet. These are budgeting figures for choosing
 `limits.state`, not terms of `frameTxGas`.
 
-The `'chain'`, `'pins'` and `'head'` rule-set arguments are compatibility aliases and price
-identically.
-
 ## 5. Accounts and preparation
 
 A `FrameAccountImplementation` supplies `getAddress()`, `getNonce({ key?, blockTag? })` (the
@@ -206,12 +203,12 @@ as a backstop. Strict decode is `decodeFrameTx(raw)` followed by `assertValidFra
 | Module | Responsibility | Depends on |
 |---|---|---|
 | `types`, `errors` | The transaction shape; typed errors | — |
+| `chain` | `hegotaTestnet`, a viem chain definition | viem |
 | `rlp` | Minimal scalars, `walkRlp` | `errors` |
 | `envelope` | `encodeFrameTx`, `decodeFrameTx`, `validateFrameTx` | `rlp`, `errors`, `types` |
 | `sighash` | `frameTxSigHash` | `envelope` |
 | `signatures` | Canonicality, recovery, signer resolution, `signFrameTx`, `assertValidFrameTx` | `sighash`, `envelope` |
 | `gas` | `frameTxGas`, `frameTxMaxCost`, `nonceCalldata` | `rlp`, `types` |
-| `divergence` | `compareRuleSets` | `gas` |
 | `nonce` | `NONCE_MANAGER`, `keyedNonceSlot`, `getFrameNonceSeq` | `errors` |
 | `rpc` | Transaction and receipt parsing, simulate, broadcast | `errors`, `types` |
 | `accounts`, `prepareFrameTransaction`, `signFrameTransaction` | Frame accounts and transaction preparation | `envelope`, `signatures`, `nonce` |

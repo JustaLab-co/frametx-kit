@@ -14,7 +14,6 @@
  */
 import {
   createPublicClient,
-  defineChain,
   formatEther,
   getAddress,
   http,
@@ -29,6 +28,7 @@ import {
   encodeFrameTx,
   frameTxGas,
   frameTxMaxCost,
+  hegotaTestnet,
   parseRpcFrameReceipt,
   prepareFrameTransaction,
   simulateFrameTransaction,
@@ -38,15 +38,7 @@ import {
   type RpcFrameReceiptJson,
 } from '../src/index.js'
 
-const CHAIN_ID = 8141n
-const DEFAULT_RPC_URL = 'https://rpc1.privacy.ethrex.xyz'
 const RECEIPT_TIMEOUT_MS = 120_000
-const hegotaTestnet = defineChain({
-  id: Number(CHAIN_ID),
-  name: 'Ethrex Hegota Testnet',
-  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: [DEFAULT_RPC_URL] } },
-})
 
 function requiredEnv(name: string): string {
   const value = process.env[name]
@@ -83,7 +75,7 @@ async function waitForFrameReceipt(
 }
 
 async function main(): Promise<void> {
-  const rpcUrl = process.env.RPC_URL ?? DEFAULT_RPC_URL
+  const rpcUrl = process.env.RPC_URL ?? hegotaTestnet.rpcUrls.default.http[0]
   const owner = privateKeyToAccount(privateKeyFromEnv())
   const recipient: Address = getAddress(requiredEnv('RECIPIENT'))
   const amount = parseEther(process.env.AMOUNT_ETH ?? '0.001')
@@ -109,8 +101,8 @@ async function main(): Promise<void> {
 
   const raw = encodeFrameTx(signed)
   const transactionHash = keccak256(raw)
-  const gas = frameTxGas(signed, 'chain')
-  const maxGasCost = frameTxMaxCost(signed, 0n, 'chain')
+  const gas = frameTxGas(signed)
+  const maxGasCost = frameTxMaxCost(signed, 0n)
 
   console.log(`raw tx:       ${raw}`)
   console.log(`sender:       ${account.address}`)

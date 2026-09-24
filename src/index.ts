@@ -1,5 +1,6 @@
 export * from './errors.js'
 export * from './types.js'
+export { hegotaTestnet } from './chain.js'
 export {
   type DirectFrameExecution,
   type FrameAccount,
@@ -69,10 +70,6 @@ export {
   frameTxMaxCost,
   nonceCalldata,
 } from './gas.js'
-export {
-  type GasDivergence,
-  compareRuleSets,
-} from './divergence.js'
 export {
   type FrameReceipt,
   type FrameRpcClient,

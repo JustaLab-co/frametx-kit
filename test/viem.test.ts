@@ -74,7 +74,7 @@ describe('frameActions', () => {
     expect(receipt.frameReceipts[0]!.status).toBe('skipped')
   })
 
-  test('estimateFrameGas prices under the requested rule set', () => {
+  test('estimateFrameGas prices the transaction', () => {
     const actions = frameActions(stubClient({}))
     expect(actions.estimateFrameGas({ transaction: GOLDEN_TX }).maxGas).toBe(77_974n)
   })

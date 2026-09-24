@@ -14,7 +14,7 @@ import { GOLDEN_TX } from './fixtures/golden.js'
 // mandatory = 12000 + 2 * 475 + 2800 (SECP256K1)                      15750
 // execution limits = 0x5208 + 0x9c40 = 21000 + 40000                  61000
 describe('frameTxGas on the golden vector', () => {
-  const gas = frameTxGas(GOLDEN_TX, 'chain')
+  const gas = frameTxGas(GOLDEN_TX)
 
   test('mandatory gas', () => expect(gas.mandatoryGas).toBe(15_750n))
   test('billed byte count', () => expect(gas.billedBytes).toBe(90n))
@@ -39,21 +39,21 @@ describe('EIP-8250 nonce calldata', () => {
     // rlp([1, 2**255]) = e2 01 a0 80 00*31 (35 bytes), rlp(7) = 07: 36 bytes,
     // 31 of them zero. 5 * 16 + 31 * 4 = 204, against 48 for the golden `[0]`.
     const keyed = { ...GOLDEN_TX, nonceKeys: [1n, 2n ** 255n] }
-    expect(frameTxGas(keyed, 'chain').billedBytes).toBe(90n - 3n + 36n)
-    expect(frameTxGas(keyed, 'chain').dataCost).toBe(1_224n - 48n + 204n)
+    expect(frameTxGas(keyed).billedBytes).toBe(90n - 3n + 36n)
+    expect(frameTxGas(keyed).dataCost).toBe(1_224n - 48n + 204n)
   })
 })
 
 describe('frameTxMaxCost', () => {
   test('is maxGas * maxFeePerGas with no blobs', () => {
     // 77974 * 0x6fc23ac00 (30 gwei)
-    expect(frameTxMaxCost(GOLDEN_TX, 0n, 'chain')).toBe(2_339_220_000_000_000n)
+    expect(frameTxMaxCost(GOLDEN_TX, 0n)).toBe(2_339_220_000_000_000n)
   })
 
   test('adds the blob term at the base rate', () => {
     const tx = { ...GOLDEN_TX, blobVersionedHashes: [`0x${'ab'.repeat(32)}` as const] }
-    const gas = frameTxGas(tx, 'chain')
-    expect(frameTxMaxCost(tx, 7n, 'chain')).toBe(
+    const gas = frameTxGas(tx)
+    expect(frameTxMaxCost(tx, 7n)).toBe(
       gas.maxGas * tx.maxFeePerGas + 131_072n * 7n,
     )
   })
@@ -69,7 +69,7 @@ describe('the calldata floor branch', () => {
       ],
       signatures: [],
     }
-    const gas = frameTxGas(tx, 'chain')
+    const gas = frameTxGas(tx)
     expect(gas.maxGas).toBe(gas.calldataFloorTotal + gas.stateGasLimit)
     expect(gas.maxGas).toBeGreaterThan(gas.standardGasLimit)
   })
@@ -87,8 +87,8 @@ describe('the calldata floor branch', () => {
       ...base,
       frames: [{ ...base.frames[0]!, limits: { execution: 1n, state: 50_000n } }],
     }
-    expect(frameTxGas(withState, 'chain').maxGas).toBe(
-      frameTxGas(base, 'chain').maxGas + 50_000n,
+    expect(frameTxGas(withState).maxGas).toBe(
+      frameTxGas(base).maxGas + 50_000n,
     )
   })
 })
@@ -113,34 +113,27 @@ describe('signature verification cost by scheme', () => {
   })
 
   test('an ARBITRARY entry adds 100', () => {
-    expect(frameTxGas(withSchemes([0]), 'chain').signatureVerificationCost).toBe(100n)
+    expect(frameTxGas(withSchemes([0])).signatureVerificationCost).toBe(100n)
   })
 
   test('a SECP256K1 entry adds 2800', () => {
-    expect(frameTxGas(withSchemes([1]), 'chain').signatureVerificationCost).toBe(2_800n)
+    expect(frameTxGas(withSchemes([1])).signatureVerificationCost).toBe(2_800n)
   })
 
   test('a P256 entry adds 6700', () => {
-    expect(frameTxGas(withSchemes([2]), 'chain').signatureVerificationCost).toBe(6_700n)
+    expect(frameTxGas(withSchemes([2])).signatureVerificationCost).toBe(6_700n)
   })
 
   test('the cost is the sum across a mixed list', () => {
     expect(
-      frameTxGas(withSchemes([1, 2, 0]), 'chain').signatureVerificationCost,
+      frameTxGas(withSchemes([1, 2, 0])).signatureVerificationCost,
     ).toBe(2_800n + 6_700n + 100n)
   })
 
   test('it feeds mandatoryGas: 12000 + 475*len(frames) + sig cost', () => {
     // Golden has two frames; a lone P256 entry -> 12000 + 950 + 6700.
-    expect(frameTxGas(withSchemes([2]), 'chain').mandatoryGas).toBe(
+    expect(frameTxGas(withSchemes([2])).mandatoryGas).toBe(
       12_000n + 475n * 2n + 6_700n,
     )
-  })
-})
-
-describe('rule sets', () => {
-  test('compatibility rule-set names price identically', () => {
-    expect(frameTxGas(GOLDEN_TX, 'chain')).toEqual(frameTxGas(GOLDEN_TX, 'pins'))
-    expect(frameTxGas(GOLDEN_TX, 'head')).toEqual(frameTxGas(GOLDEN_TX, 'pins'))
   })
 })

@@ -129,7 +129,7 @@ Historical state is pruned. `ethrex_simulateFrameTransaction` works only against
 `rlp` / `errors` / `types` → `envelope` → `sighash` → `signatures`. `gas` depends only on
 `rlp` and `types`. `rpc` depends only on `errors` and `types`. `viem` sits on top — it
 composes `envelope`, `signatures`, `rpc` and `gas` and holds no wire logic of its own.
-`divergence` depends on `gas`. Nothing imports upward.
+Nothing imports upward.
 
 ## Tests
 
@@ -171,7 +171,7 @@ That means **your commit messages set the version**. Use
 | `docs:`, `chore:`, `test:`, `ci:`, `refactor:`, `style:`, `perf:`, `build:`, `revert:` | no release |
 
 Pull request titles are validated by CI against that list, with an optional scope from
-`envelope`, `sighash`, `signatures`, `gas`, `divergence`, `rlp`, `rpc`, `viem`,
+`envelope`, `sighash`, `signatures`, `gas`, `nonce`, `accounts`, `rlp`, `rpc`, `viem`,
 `fixtures`, `docs`, `deps`, `ci`, `repo` — for example
 `fix(envelope): reject a zero nonce key beside other keys`. Subjects start lowercase.
 

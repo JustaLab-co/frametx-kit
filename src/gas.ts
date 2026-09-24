@@ -1,6 +1,6 @@
 import { type Address, type Hex, concatHex, toRlp } from 'viem'
 import { byteLength, rlpUint } from './rlp.js'
-import type { FrameTransaction, RuleSet, SigScheme } from './types.js'
+import type { FrameTransaction, SigScheme } from './types.js'
 
 // EIP-8141 Constants table. Written as published figures, never derived: ethrex's
 // own suite missed the intrinsic dropping from 15000 to 12000 across 1372 tests
@@ -100,11 +100,8 @@ function valueTransferCost(tx: FrameTransaction): bigint {
   return total
 }
 
-/**
- * Price a frame transaction. The rule-set argument remains as a compatibility
- * alias; all names use the current EIP-8141 accounting rules.
- */
-export function frameTxGas(tx: FrameTransaction, _rules: RuleSet = 'chain'): FrameGas {
+/** Price a frame transaction from its declared limits. */
+export function frameTxGas(tx: FrameTransaction): FrameGas {
   const valueCost = valueTransferCost(tx)
   const sigCost = tx.signatures.reduce(
     (acc, s) => acc + SIG_VERIFY_COST[s.scheme],
@@ -154,12 +151,8 @@ export function frameTxGas(tx: FrameTransaction, _rules: RuleSet = 'chain'): Fra
 }
 
 /** TXPARAM 0x06: max_gas * max_fee_per_gas + len(blobs) * GAS_PER_BLOB * blob_base_fee. */
-export function frameTxMaxCost(
-  tx: FrameTransaction,
-  blobBaseFee: bigint,
-  rules: RuleSet = 'chain',
-): bigint {
-  const { maxGas } = frameTxGas(tx, rules)
+export function frameTxMaxCost(tx: FrameTransaction, blobBaseFee: bigint): bigint {
+  const { maxGas } = frameTxGas(tx)
   return (
     maxGas * tx.maxFeePerGas +
     BigInt(tx.blobVersionedHashes.length) * GAS_PER_BLOB * blobBaseFee
