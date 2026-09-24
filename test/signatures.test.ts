@@ -334,7 +334,7 @@ describe('assertValidFrameTx', () => {
 
 // The account path exists so a key this library never sees — a hardware wallet, a
 // KMS, an HD account — can sign. Its bytes must be indistinguishable from the
-// private-key path, which the golden sig-hash and oracle 3 already pin.
+// private-key path, which the golden sig-hash and the captured chain signatures already pin.
 describe('signFrameTx with an account', () => {
   const oneEmptyEntry = (sender: Address) => ({
     ...GOLDEN_TX,

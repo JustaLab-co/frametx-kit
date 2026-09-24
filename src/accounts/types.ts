@@ -18,13 +18,16 @@ export type FrameCall = {
 }
 
 export type GetFrameNonceParameters = {
+  /** EIP-8250 nonce key. Defaults to `0n`, the account nonce. */
+  key?: bigint | undefined
   blockTag?: BlockTag | undefined
 }
 
 export type GetValidationDataParameters = {
   calls: readonly FrameCall[]
   chainId: bigint
-  nonce: bigint
+  nonceKeys: readonly bigint[]
+  nonceSeq: bigint
 }
 
 export type DirectFrameExecution = {
@@ -51,7 +54,7 @@ export type FrameAccountImplementation<
   extend?: extend | undefined
   /** Resolve the sender address represented by this account. */
   getAddress: () => Promise<Address>
-  /** Resolve the sender's scalar account nonce. */
+  /** Resolve the current EIP-8250 sequence of one of the sender's nonce keys. */
   getNonce: (parameters?: GetFrameNonceParameters) => Promise<bigint>
   /** Produce calldata for the account's EIP-8141 validation frame. */
   getValidationData: (parameters: GetValidationDataParameters) => Promise<Hex>

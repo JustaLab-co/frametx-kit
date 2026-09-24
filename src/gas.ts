@@ -1,6 +1,6 @@
-import { type Address, type Hex } from 'viem'
-import { byteLength } from './rlp.js'
-import type { FrameTransaction, RuleSet, SigScheme } from './types.js'
+import { type Address, type Hex, concatHex, toRlp } from 'viem'
+import { byteLength, rlpUint } from './rlp.js'
+import type { FrameTransaction, SigScheme } from './types.js'
 
 // EIP-8141 Constants table. Written as published figures, never derived: ethrex's
 // own suite missed the intrinsic dropping from 15000 to 12000 across 1372 tests
@@ -11,6 +11,16 @@ export const FRAME_TX_VALUE_COST = 6_000n
 export const STANDARD_TOKEN_COST = 4n
 export const TOTAL_COST_FLOOR_PER_TOKEN = 16n
 export const GAS_PER_BLOB = 131_072n
+
+// EIP-8037 state gas that EIP-8250 nonce consumption charges against the
+// payment-approving frame's `limits.state`. These are execution-time charges, so
+// they are budgeting figures for callers sizing `limits.state`, not terms of
+// `frameTxGas`. Both are `state bytes * cost_per_state_byte`, with the cost
+// pinned at 1530 on hegota-testnet (ethrex `bdfc5d8`, `gas_cost.rs:194`).
+/** A non-zero nonce key whose `NONCE_MANAGER` slot is still zero: 64 * 1530. */
+export const KEYED_NONCE_FIRST_USE_STATE_GAS = 97_920n
+/** Key `[0]` from a sender that does not exist yet: 120 * 1530. */
+export const NEW_ACCOUNT_STATE_GAS = 183_600n
 
 export const SIG_VERIFY_COST: Record<SigScheme, bigint> = {
   0: 100n,
@@ -36,14 +46,26 @@ export type FrameGas = {
 }
 
 /**
+ * EIP-8250 `nonce_calldata`: `rlp(nonce_keys) || rlp(nonce_seq)`. The bytes the
+ * keyed nonce adds to the payload, priced like frame and signature data.
+ */
+export function nonceCalldata(tx: FrameTransaction): Hex {
+  return concatHex([
+    toRlp(tx.nonceKeys.map(rlpUint), 'hex'),
+    toRlp(rlpUint(tx.nonceSeq), 'hex'),
+  ])
+}
+
+/**
  * The fields the calldata cost is charged over: each frame's `data`, each
- * signature's `signer`, `msg` and `signature`. The envelope's RLP framing and
- * its scalar fields are not billed.
+ * signature's `signer`, `msg` and `signature`, and the nonce calldata. The
+ * envelope's RLP framing and its other scalar fields are not billed.
  */
 function billedFields(tx: FrameTransaction): Hex[] {
   return [
     ...tx.frames.map((f) => f.data),
     ...tx.signatures.flatMap((s) => [s.signer ?? '0x', s.msg, s.signature] as Hex[]),
+    nonceCalldata(tx),
   ]
 }
 
@@ -78,11 +100,8 @@ function valueTransferCost(tx: FrameTransaction): bigint {
   return total
 }
 
-/**
- * Price a frame transaction. The rule-set argument remains as a compatibility
- * alias; all names use the current EIP-8141 accounting rules.
- */
-export function frameTxGas(tx: FrameTransaction, _rules: RuleSet = 'chain'): FrameGas {
+/** Price a frame transaction from its declared limits. */
+export function frameTxGas(tx: FrameTransaction): FrameGas {
   const valueCost = valueTransferCost(tx)
   const sigCost = tx.signatures.reduce(
     (acc, s) => acc + SIG_VERIFY_COST[s.scheme],
@@ -132,12 +151,8 @@ export function frameTxGas(tx: FrameTransaction, _rules: RuleSet = 'chain'): Fra
 }
 
 /** TXPARAM 0x06: max_gas * max_fee_per_gas + len(blobs) * GAS_PER_BLOB * blob_base_fee. */
-export function frameTxMaxCost(
-  tx: FrameTransaction,
-  blobBaseFee: bigint,
-  rules: RuleSet = 'chain',
-): bigint {
-  const { maxGas } = frameTxGas(tx, rules)
+export function frameTxMaxCost(tx: FrameTransaction, blobBaseFee: bigint): bigint {
+  const { maxGas } = frameTxGas(tx)
   return (
     maxGas * tx.maxFeePerGas +
     BigInt(tx.blobVersionedHashes.length) * GAS_PER_BLOB * blobBaseFee

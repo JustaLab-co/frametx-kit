@@ -1,5 +1,6 @@
 export * from './errors.js'
 export * from './types.js'
+export { hegotaTestnet } from './chain.js'
 export {
   type DirectFrameExecution,
   type FrameAccount,
@@ -21,6 +22,12 @@ export {
   toEoaFrameAccount,
 } from './accounts/toEoaFrameAccount.js'
 export {
+  type GetFrameNonceSeqParameters,
+  NONCE_MANAGER,
+  getFrameNonceSeq,
+  keyedNonceSlot,
+} from './nonce.js'
+export {
   type PrepareFrameLimits,
   type PrepareFrameTransactionOptions,
   prepareFrameTransaction,
@@ -33,6 +40,7 @@ export {
   decodeFrameTx,
   validateFrameTx,
   MAX_FRAMES,
+  MAX_NONCE_KEYS,
   MAX_BLOBS_PER_TX,
   EXPIRY_VERIFIER,
 } from './envelope.js'
@@ -52,17 +60,16 @@ export {
   FRAME_TX_PER_FRAME_COST,
   FRAME_TX_VALUE_COST,
   GAS_PER_BLOB,
+  KEYED_NONCE_FIRST_USE_STATE_GAS,
+  NEW_ACCOUNT_STATE_GAS,
   SIG_VERIFY_COST,
   STANDARD_TOKEN_COST,
   TOTAL_COST_FLOOR_PER_TOKEN,
   type FrameGas,
   frameTxGas,
   frameTxMaxCost,
+  nonceCalldata,
 } from './gas.js'
-export {
-  type GasDivergence,
-  compareRuleSets,
-} from './divergence.js'
 export {
   type FrameReceipt,
   type FrameRpcClient,

@@ -35,7 +35,8 @@ export function encodeFrameTxBody(tx: FrameTransaction): Hex {
   return toRlp(
     [
       rlpUint(tx.chainId),
-      rlpUint(tx.nonce),
+      tx.nonceKeys.map(rlpUint),
+      rlpUint(tx.nonceSeq),
       tx.sender,
       tx.frames.map(encodeFrame),
       tx.signatures.map(encodeSignature),
@@ -143,14 +144,15 @@ function decodeFields(
 ): FrameTransaction {
   return {
     chainId: asUint(fields[0]!, 'chainId'),
-    nonce: asUint(fields[1]!, 'nonce'),
+    nonceKeys: asList(fields[1]!, 'nonceKeys').map((k) => asUint(k, 'nonceKeys[]')),
+    nonceSeq: asUint(fields[2]!, 'nonceSeq'),
     sender,
-    frames: asList(fields[3]!, 'frames').map(decodeFrame),
-    signatures: asList(fields[4]!, 'signatures').map(decodeSignature),
+    frames: asList(fields[4]!, 'frames').map(decodeFrame),
+    signatures: asList(fields[5]!, 'signatures').map(decodeSignature),
     maxPriorityFeePerGas: asUint(fees[0]!, 'maxPriorityFeePerGas'),
     maxFeePerGas: asUint(fees[1]!, 'maxFeePerGas'),
     maxFeePerBlobGas: asUint(fees[2]!, 'maxFeePerBlobGas'),
-    blobVersionedHashes: asList(fields[6]!, 'blobVersionedHashes').map((h) =>
+    blobVersionedHashes: asList(fields[7]!, 'blobVersionedHashes').map((h) =>
       asHex(h, 'blobVersionedHashes[]'),
     ),
   }
@@ -193,22 +195,22 @@ export function decodeFrameTx(raw: Hex): FrameTransaction {
   }
 
   const fields = asList(tree, 'envelope')
-  if (fields.length !== 7)
+  if (fields.length !== 8)
     throw new FrameDecodeError(
-      `envelope must have 7 fields, got ${fields.length}`,
+      `envelope must have 8 fields, got ${fields.length}`,
       tree.start,
     )
 
-  const fees = asList(fields[5]!, 'fees')
+  const fees = asList(fields[6]!, 'fees')
   if (fees.length !== 3)
     throw new FrameDecodeError(
       `fees must have 3 fields, got ${fees.length}`,
-      fields[5]!.start,
+      fields[6]!.start,
     )
 
-  const sender = asAddressOrNull(fields[2]!, 'sender')
+  const sender = asAddressOrNull(fields[3]!, 'sender')
   if (sender === null)
-    throw new FrameDecodeError('sender may not be empty', fields[2]!.start)
+    throw new FrameDecodeError('sender may not be empty', fields[3]!.start)
 
   const tx = decodeFields(fields, fees, sender)
 
@@ -226,6 +228,8 @@ export function decodeFrameTx(raw: Hex): FrameTransaction {
 }
 
 export const MAX_FRAMES = 64
+/** EIP-8250 `MAX_NONCE_KEYS`. */
+export const MAX_NONCE_KEYS = 16
 /** EIP-7594 per-transaction blob limit; frame transactions inherit it unchanged. */
 export const MAX_BLOBS_PER_TX = 6
 /** EIP-8141 expiry-verifier predeploy. A VERIFY frame targeting it is an expiry frame. */
@@ -301,9 +305,10 @@ function isExpiryVerifier(frame: Frame): boolean {
 }
 
 function assertFieldWidths(tx: FrameTransaction): void {
-  // These are the widths ethrex's decoder reads the fields at.
+  // These are the widths ethrex's decoder reads the fields at. The nonce keys
+  // are U256 and are checked with the rest of the nonce rules in `assertNonce`.
   assertUint(tx.chainId, 64, 'chainId')
-  assertUint(tx.nonce, 64, 'nonce')
+  assertUint(tx.nonceSeq, 64, 'nonceSeq')
   assertUint(tx.maxPriorityFeePerGas, 256, 'maxPriorityFeePerGas')
   assertUint(tx.maxFeePerGas, 256, 'maxFeePerGas')
   assertUint(tx.maxFeePerBlobGas, 256, 'maxFeePerBlobGas')
@@ -315,7 +320,7 @@ function assertSender(tx: FrameTransaction): void {
     throw new FrameEncodeError('sender must not be the zero address')
 }
 
-/** Checked before the nonce rules, matching the order in the Rust original. */
+/** Checked after the nonce rules, matching the order in the Rust original. */
 function assertFrameCount(tx: FrameTransaction): void {
   if (tx.frames.length === 0)
     throw new FrameEncodeError('a frame transaction needs at least one frame')
@@ -323,9 +328,33 @@ function assertFrameCount(tx: FrameTransaction): void {
     throw new FrameEncodeError(`at most ${MAX_FRAMES} frames, got ${tx.frames.length}`)
 }
 
+/**
+ * The key-list half of `assertNonce`, which needs no sequence. Exported so that
+ * `prepareFrameTransaction` can refuse a bad key list before reading any nonces.
+ */
+export function assertNonceKeys(nonceKeys: readonly bigint[]): void {
+  if (nonceKeys.length < 1 || nonceKeys.length > MAX_NONCE_KEYS)
+    throw new FrameEncodeError(
+      `nonceKeys must hold between 1 and ${MAX_NONCE_KEYS} entries, got ${nonceKeys.length}`,
+    )
+  for (const [i, key] of nonceKeys.entries()) assertUint(key, 256, `nonceKeys[${i}]`)
+  for (let i = 1; i < nonceKeys.length; i++)
+    if (nonceKeys[i - 1]! >= nonceKeys[i]!)
+      throw new FrameEncodeError('nonceKeys must be strictly increasing')
+  if (nonceKeys.length > 1 && nonceKeys[0] === 0n)
+    throw new FrameEncodeError('nonce key 0 is only valid as the sole nonce key')
+}
+
+/**
+ * EIP-8250 keyed-nonce rules, from `validate_static_constraints` at ethrex
+ * `bdfc5d8`. Key `0` is the account nonce and cannot be mixed with non-zero
+ * keys: a transaction either increments the account nonce or writes
+ * `NONCE_MANAGER` slots, never both.
+ */
 function assertNonce(tx: FrameTransaction): void {
-  if (tx.nonce >= U64_MAX)
-    throw new FrameEncodeError('nonce must be below 2**64 - 1')
+  assertNonceKeys(tx.nonceKeys)
+  if (tx.nonceSeq >= U64_MAX)
+    throw new FrameEncodeError('nonceSeq must be below 2**64 - 1')
 }
 
 function assertBlobs(tx: FrameTransaction): void {
@@ -380,7 +409,7 @@ function assertFrames(tx: FrameTransaction): void {
       throw new FrameEncodeError(`frame ${i}: only SENDER frames may carry value`)
 
     // ethrex bounds both dimensions at i64::MAX, stricter than the EIP's 2**64-1,
-    // so its i64 state-gas accounting cannot overflow (transaction.rs:2924-2950).
+    // so its i64 state-gas accounting cannot overflow (transaction.rs:2814-2845 at `bdfc5d8`).
     assertNonNegative(frame.limits.execution, `frame ${i}: limits.execution`)
     assertNonNegative(frame.limits.state, `frame ${i}: limits.state`)
     if (frame.limits.execution > I64_MAX)
@@ -434,7 +463,7 @@ function assertFrames(tx: FrameTransaction): void {
 
 /**
  * The encode-side structural rules, transcribed from
- * `FrameTransaction::validate_static_constraints` (transaction.rs:2662-3010).
+ * `FrameTransaction::validate_static_constraints` (transaction.rs:2667 at `bdfc5d8`).
  *
  * Strict on purpose: these are consensus rules, so producing a transaction that
  * violates one is producing an invalid transaction, not merely an unrelayable
@@ -451,8 +480,8 @@ function assertFrames(tx: FrameTransaction): void {
 export function validateFrameTx(tx: FrameTransaction): void {
   assertFieldWidths(tx)
   assertSender(tx)
-  assertFrameCount(tx)
   assertNonce(tx)
+  assertFrameCount(tx)
   assertBlobs(tx)
   assertSignatures(tx)
   assertFrames(tx)

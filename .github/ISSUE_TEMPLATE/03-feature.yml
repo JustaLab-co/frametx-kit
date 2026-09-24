@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Check `docs/OPEN-ITEMS.md` first. Known gaps are already recorded there, and a comment on the matching item is more useful than a new issue.
+        Check the open issues first; a comment on a matching one is more useful than a new issue.
   - type: textarea
     id: need
     attributes:
@@ -28,7 +28,8 @@ body:
         - sighash
         - signatures
         - gas
-        - divergence
+        - nonce
+        - accounts
         - rlp
         - rpc
         - viem
