@@ -64,11 +64,12 @@ async function main() {
   async function* frameTransactions(): AsyncGenerator<{ n: bigint; tx: HydratedTx }> {
     if (byHash) {
       for (const hash of args) {
-        const tx = await rpc<(HydratedTx & { blockNumber: Hex }) | null>(
+        const tx = await rpc<(HydratedTx & { blockNumber: Hex | null }) | null>(
           'eth_getTransactionByHash',
           [hash],
         )
         if (tx === null) throw new Error(`${hash}: not found`)
+        if (tx.blockNumber === null) throw new Error(`${hash}: still pending, not yet mined`)
         yield { n: BigInt(tx.blockNumber), tx }
       }
       return
