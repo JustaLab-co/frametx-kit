@@ -3,22 +3,28 @@ import { createClient, custom, getAddress } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { mainnet } from 'viem/chains'
 import { toEoaFrameAccount } from '../src/accounts/toEoaFrameAccount.js'
+import { keyedNonceSlot } from '../src/nonce.js'
 import { prepareFrameTransaction } from '../src/prepareFrameTransaction.js'
 import { assertValidFrameTx } from '../src/signatures.js'
 
 const OWNER_KEY = `0x${'11'.repeat(32)}` as const
 
-function testClient() {
+/** `storage` maps a NONCE_MANAGER slot to its value; unlisted slots read zero. */
+function testClient(storage: Record<string, bigint> = {}) {
   const requests: { method: string; params?: unknown }[] = []
   const owner = privateKeyToAccount(OWNER_KEY)
   const client = createClient({
     account: owner,
-    chain: { ...mainnet, id: 81_410 },
+    chain: { ...mainnet, id: 8_141 },
     transport: custom({
       async request(request) {
         requests.push(request)
         switch (request.method) {
           case 'eth_getTransactionCount': return '0x7'
+          case 'eth_getStorageAt': {
+            const slot = (request.params as string[])[1]!
+            return `0x${(storage[slot] ?? 0n).toString(16).padStart(64, '0')}`
+          }
           case 'eth_maxPriorityFeePerGas': return '0x3b9aca00'
           case 'eth_gasPrice': return '0x77359400'
           case 'eth_getBlockByNumber': return { baseFeePerGas: '0x77359400' }
@@ -53,8 +59,9 @@ describe('prepareFrameTransaction', () => {
     )
 
     expect(transaction).toMatchObject({
-      chainId: 81_410n,
-      nonce: 7n,
+      chainId: 8_141n,
+      nonceKeys: [0n],
+      nonceSeq: 7n,
       sender: owner.address,
       signatures: [],
       maxPriorityFeePerGas: 1_000_000_000n,
@@ -92,6 +99,37 @@ describe('prepareFrameTransaction', () => {
     const signed = await account.signFrameTransaction(transaction)
     expect(() => assertValidFrameTx(signed)).not.toThrow()
     expect(requests.some(({ method }) => method === 'eth_chainId')).toBe(false)
+  })
+
+  test('selects non-zero keys at their shared NONCE_MANAGER sequence', async () => {
+    const owner = privateKeyToAccount(OWNER_KEY)
+    const [one, nine] = [1n, 9n].map((key) => keyedNonceSlot(owner.address, key))
+    const { client } = testClient({ [one!]: 4n, [nine!]: 4n })
+    const account = await toEoaFrameAccount({ client, owner })
+
+    const transaction = await prepareFrameTransaction(
+      account,
+      [{ to: owner.address, value: 0n, data: '0x' }],
+      { validation: { execution: 1n, state: 0n }, calls: [{ execution: 1n, state: 0n }] },
+      { nonceKeys: [1n, 9n] },
+    )
+    expect(transaction.nonceKeys).toEqual([1n, 9n])
+    expect(transaction.nonceSeq).toBe(4n)
+  })
+
+  test('refuses keys that sit at different sequences', async () => {
+    const owner = privateKeyToAccount(OWNER_KEY)
+    const { client } = testClient({ [keyedNonceSlot(owner.address, 2n)]: 1n })
+    const account = await toEoaFrameAccount({ client, owner })
+
+    await expect(
+      prepareFrameTransaction(
+        account,
+        [{ to: owner.address, value: 0n, data: '0x' }],
+        { validation: { execution: 1n, state: 0n }, calls: [{ execution: 1n, state: 0n }] },
+        { nonceKeys: [2n, 3n] },
+      ),
+    ).rejects.toThrow(/different sequences: key 2 is at 1, key 3 is at 0/)
   })
 
   test('requires one call-limit entry per call', async () => {

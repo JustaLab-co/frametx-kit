@@ -9,10 +9,12 @@ exist only to redirect assistants here.
 `frametx-kit` reads, builds, hashes, signs, prices, simulates and broadcasts EIP-8141
 frame transactions as the hegota-testnet chain (chain ID `8141`) accepts them. That
 envelope is a composition of three draft EIPs that none of them specifies on its own:
-EIP-8141 frames, EIP-8250 keyed nonces, EIP-8272 recent-root references.
+EIP-8141 frames, EIP-8250 keyed nonces, EIP-8272 recent-root references (which now travel
+in a VERIFY frame rather than an envelope field).
 
-It is a deliberate second implementation. The migration is pinned against
-[ethrex commit `d587cf9`](https://github.com/lambdaclass/ethrex/tree/d587cf9ff0996315381c4b2784a4d7d499decc0f),
+It is a deliberate second implementation. It is pinned against
+[ethrex commit `bdfc5d8`](https://github.com/lambdaclass/ethrex/tree/bdfc5d8f2e7f653e620a9901db915f89a87a3d0d),
+the `hegota-testnet` build that `rpc1.privacy.ethrex.xyz` serves,
 and this library exists partly to disagree with it usefully. Every `.rs`, `.py` and
 `docs/*.md` path cited in this repository's docs and comments — `transaction.rs`,
 `frame_tx_wire_tests.rs`, `frametx.py` and the rest — is a path in that repository, not in
@@ -46,14 +48,13 @@ interchangeable.
 
 ```bash
 bun run test        # hermetic, no network
-bun run test:live   # checks rpc1.frames.ethrex.xyz identity
+bun run test:live   # checks rpc1.privacy.ethrex.xyz identity
 bun run typecheck
 bun run build       # tsup -> dist/, dual ESM + CJS with both declaration flavours
 ```
 
 CI runs `typecheck`, `test`, `build`, and then `@arethetypeswrong/cli --pack .` against
-the built package. All four must pass. The public frames RPC currently has no
-frame-aware simulation method, so there is no live simulation gate.
+the built package. All four must pass.
 
 That last check is there because a broken `exports` map or a mismatched `.d.cts` breaks
 every consumer while leaving the test suite entirely green — the tests import from `src/`,
@@ -93,6 +94,11 @@ path is `assertValidFrameTx(tx)` then `encodeFrameTx(tx)`.
 
 ## Traps specific to this wire format
 
+- **There is no scalar nonce.** The envelope's second and third fields are `nonceKeys`
+  (an RLP list, even for the common `[0]`) and `nonceSeq`. Key `0` is only valid alone.
+  `rlp(nonce_keys) || rlp(nonce_seq)` is billed as calldata, so dropping it misprices
+  every transaction by at least 48 gas — `test/chain.oracle.test.ts` catches that against
+  the node's `maxCost`.
 - **Signature layout is `v || r || s`**, `v` at byte 0 as a bare recovery id (0 or 1),
   never 27/28. That is the reverse of viem's layout in both directions. A 27/28-encoded
   signature makes the transaction invalid at consensus, not merely unrelayable.
@@ -125,22 +131,22 @@ Historical state is pruned. `ethrex_simulateFrameTransaction` works only against
 composes `envelope`, `signatures`, `rpc` and `gas` and holds no wire logic of its own.
 `divergence` depends on `gas`. Nothing imports upward.
 
-## Verification
+## Tests
 
-Three oracles, and none of them is self-referential:
+Wire-format and gas tests are pinned to something other than the code's own output:
 
-1. The golden byte vector and sig-hash, transcribed from ethrex's Rust tests.
-2. Re-encoding the node's decoded JSON must reproduce each transaction's hash.
-3. Against live receipts: recovered signer equals the *resolved* signer (often not
-   `sender` on this chain), our `'chain'` `maxCost` equals the node's, and
-   `gasUsed = intrinsic + Σ frame execution + Σ frame state`.
+- `test/fixtures/golden.ts` — the golden vector and sig-hash from ethrex's
+  `frame_tx_wire_tests.rs`.
+- `test/fixtures/chain/` — real transactions captured from the chain, with their receipts
+  and the node's simulate answer. `test/chain.oracle.test.ts` re-encodes each one and checks
+  the hash, the recovered signer, `maxCost` against the node's, and receipt gas. To add one,
+  run `bunx tsx scripts/capture-fixtures.ts 0x<hash>`. Pick transactions without storage
+  refunds: receipts don't itemize them, so their gas can't be reconstructed.
+- `test/gas.test.ts` — expected figures derived by hand, with the derivation in comments.
 
+A round-trip test cannot catch a mistake mirrored in the encoder and the decoder, such as
+the `v || r || s` byte order, so pin any new layout to bytes or to captured data as well.
 Run the commands and read the output before concluding that something works.
-
-The `v || r || s` byte order deserves a note, because a round-trip test cannot pin it: a
-mirrored error in the encoder and the decoder survives one. It is pinned instead by
-hand-constructed byte-pattern assertions and by oracle 3 recovering signers from real
-ethrex-produced signatures. Hold any new layout you add to the same standard.
 
 ## Commits, PR titles and releases
 
@@ -167,7 +173,7 @@ That means **your commit messages set the version**. Use
 Pull request titles are validated by CI against that list, with an optional scope from
 `envelope`, `sighash`, `signatures`, `gas`, `divergence`, `rlp`, `rpc`, `viem`,
 `fixtures`, `docs`, `deps`, `ci`, `repo` — for example
-`fix(envelope): encode the scalar frame nonce`. Subjects start lowercase.
+`fix(envelope): reject a zero nonce key beside other keys`. Subjects start lowercase.
 
 Do not hand-edit `version` in `package.json` or touch `CHANGELOG.md`; the release commit
 owns both. A wire-format or gas change is almost always at least a `fix:`, because
@@ -181,14 +187,11 @@ someone downstream is encoding bytes with this.
   published figure, a golden vector, or captured chain data, not to the code's own output.
 - If you touched anything in **Rules that are not style preferences**, say why in the PR
   description. Those changes are not refused, but they are argued.
-- Files under `test/fixtures/chain` are archived captures from the superseded envelope.
-  Do not use them as current wire-format oracles.
 
 ## Where the rest of the docs are
 
 - `docs/DESIGN.md` — the binding design spec. It is the authority on intended behaviour;
   where the code and the spec disagree, that is a bug in one of them, so say which.
-- `docs/OPEN-ITEMS.md` — known gaps and unfinished work.
 - `README.md` — user-facing API.
 - `SECURITY.md` — what counts as a vulnerability here, and why a report goes private.
 - `CODE_OF_CONDUCT.md` — expected conduct in issues and pull requests.

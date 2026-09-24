@@ -37,8 +37,14 @@ export type FrameSignature = {
 
 export type FrameTransaction = {
   chainId: bigint
-  /** Sender account nonce, encoded as a scalar uint64. */
-  nonce: bigint
+  /**
+   * EIP-8250 nonce keys: 1 to 16, strictly increasing, each a uint256. `[0n]` is
+   * the sender's ordinary account nonce; key `0` is valid only as the sole key.
+   * Non-zero keys are tracked in the `NONCE_MANAGER` predeploy.
+   */
+  nonceKeys: bigint[]
+  /** EIP-8250 sequence number, a uint64 matched against every selected key. */
+  nonceSeq: bigint
   sender: Address
   frames: Frame[]
   signatures: FrameSignature[]
@@ -50,7 +56,7 @@ export type FrameTransaction = {
 
 /**
  * Which rule set to price under.
- * Kept for API compatibility with the kit's gas helpers. The current frame
- * transaction envelope has no keyed-nonce or recent-root extensions.
+ * Kept for API compatibility with the kit's gas helpers. hegota-testnet prices
+ * every frame transaction under one set of rules, so all three names are aliases.
  */
 export type RuleSet = 'chain' | 'pins' | 'head'

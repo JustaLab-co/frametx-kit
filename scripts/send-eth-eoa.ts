@@ -6,8 +6,11 @@
  *
  * Optional:
  *   AMOUNT_ETH=0.001
- *   RPC_URL=https://rpc1.frames.ethrex.xyz
- *   DRY_RUN=1
+ *   RPC_URL=https://rpc1.privacy.ethrex.xyz
+ *   DRY_RUN=1   simulate only; do not broadcast
+ *
+ * The transaction is always simulated with `ethrex_simulateFrameTransaction`
+ * first, and is not broadcast unless the node reports it valid.
  */
 import {
   createPublicClient,
@@ -28,18 +31,19 @@ import {
   frameTxMaxCost,
   parseRpcFrameReceipt,
   prepareFrameTransaction,
+  simulateFrameTransaction,
   signFrameTransaction,
   toEoaFrameAccount,
   type FrameRpcClient,
   type RpcFrameReceiptJson,
 } from '../src/index.js'
 
-const CHAIN_ID = 81410n
-const DEFAULT_RPC_URL = 'https://rpc1.frames.ethrex.xyz'
+const CHAIN_ID = 8141n
+const DEFAULT_RPC_URL = 'https://rpc1.privacy.ethrex.xyz'
 const RECEIPT_TIMEOUT_MS = 120_000
-const framesDevnet = defineChain({
+const hegotaTestnet = defineChain({
   id: Number(CHAIN_ID),
-  name: 'Ethrex Frames Devnet',
+  name: 'Ethrex Hegota Testnet',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   rpcUrls: { default: { http: [DEFAULT_RPC_URL] } },
 })
@@ -86,7 +90,7 @@ async function main(): Promise<void> {
   const dryRun = process.env.DRY_RUN === '1'
 
   const client = createPublicClient({
-    chain: framesDevnet,
+    chain: hegotaTestnet,
     transport: http(rpcUrl),
   })
   const account = await toEoaFrameAccount({ client, owner })
@@ -112,10 +116,16 @@ async function main(): Promise<void> {
   console.log(`sender:       ${account.address}`)
   console.log(`recipient:    ${recipient}`)
   console.log(`amount:       ${formatEther(amount)} ETH`)
-  console.log(`nonce:        ${signed.nonce}`)
+  console.log(`nonce keys:   [${signed.nonceKeys.join(', ')}] at seq ${signed.nonceSeq}`)
   console.log(`max gas:      ${gas.maxGas}`)
   console.log(`max gas cost: ${formatEther(maxGasCost)} ETH`)
   console.log(`local hash:   ${transactionHash}`)
+
+  const simulation = await simulateFrameTransaction(client, raw)
+  console.log(`simulated:    valid=${simulation.valid} prefix=${simulation.prefixShape}`)
+  console.log(`  gas used:   ${simulation.gasUsed}`)
+  console.log(`  max cost:   ${simulation.maxCost} (local ${maxGasCost})`)
+  if (!simulation.valid) throw new Error(`simulation rejected the transaction: ${simulation.violation}`)
 
   if (dryRun) {
     console.log('DRY_RUN=1, so the valid transaction was not broadcast')

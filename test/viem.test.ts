@@ -76,7 +76,7 @@ describe('frameActions', () => {
 
   test('estimateFrameGas prices under the requested rule set', () => {
     const actions = frameActions(stubClient({}))
-    expect(actions.estimateFrameGas({ transaction: GOLDEN_TX }).maxGas).toBe(2_077_926n)
+    expect(actions.estimateFrameGas({ transaction: GOLDEN_TX }).maxGas).toBe(77_974n)
   })
 
   test('composes with client.extend on a real viem client', () => {
@@ -87,7 +87,7 @@ describe('frameActions', () => {
       frameActions,
     )
     expect(typeof client.getFrameTransaction).toBe('function')
-    expect(client.estimateFrameGas({ transaction: GOLDEN_TX }).maxGas).toBe(2_077_926n)
+    expect(client.estimateFrameGas({ transaction: GOLDEN_TX }).maxGas).toBe(77_974n)
   })
 
   test('waitForFrameTransactionReceipt polls until the receipt is present', async () => {

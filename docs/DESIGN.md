@@ -1,404 +1,230 @@
 # frametx-kit design
 
-**Status:** implemented against the EIP-8141 frame transaction layout used by
-Ethrex `v23.0.0-HEAD-d587cf9ff0996315381c4b2784a4d7d499decc0f`.
+The binding spec for what the library does. Where the code and this document disagree,
+one of them has a bug; say which.
 
-## Scope
+**Target:** the EIP-8141 frame transaction with EIP-8250 keyed nonces, as served by the
+Ethrex hegota-testnet — chain ID `8141`, `https://rpc1.privacy.ethrex.xyz`, Ethrex
+`v23.0.0-hegota-testnet-bdfc5d8f2e7f653e620a9901db915f89a87a3d0d`. Citations of
+`transaction.rs`, `frame_tx_wire_tests.rs` and other `.rs` / `.py` paths refer to that
+commit of [`lambdaclass/ethrex`](https://github.com/lambdaclass/ethrex/tree/bdfc5d8f2e7f653e620a9901db915f89a87a3d0d).
 
-The package provides pure TypeScript tools to encode, decode, hash, sign, validate,
-price, and format EIP-8141 frame transactions. It also provides a small account
-abstraction for constructing account-specific validation and signatures.
+## 1. Scope
 
-Transaction submission remains a normal `eth_sendRawTransaction` call. The optional
-Ethrex simulation wrapper is retained, but not every frames-devnet RPC exposes that
-method.
+A TypeScript client for frame transactions: build, validate, encode, decode, hash, sign,
+price, simulate, broadcast, and read them back with their frame receipts. It ships a small
+account abstraction (`toFrameAccount`, `toEoaFrameAccount`), `prepareFrameTransaction`,
+and a viem extension (`client.extend(frameActions)`). It is not a fork of viem core.
 
-## Canonical envelope
+Not supported:
 
-A transaction is encoded as `0x06 || rlp(payload)`, where `payload` has exactly seven
-fields:
+- **Recent-root verifier frames** (EIP-8272). The chain carries recent-root references in a
+  VERIFY frame targeting `0x…8272`; the library does not build that frame. A transaction
+  that contains one still decodes, encodes and prices as ordinary frames.
+- **Blob sidecars.** `blobVersionedHashes` is carried through the envelope, but a
+  blob-carrying transaction must be broadcast in the EIP-7594 wrapper, which the library
+  does not produce.
+- **UTXO frames** (mode 5, EIP-8312), inert on this chain.
+- **P256 and ARBITRARY signing.** Both are validated, neither is produced by `signFrameTx`.
 
-The same blindness applies to the wire format. From `test/tests/common/frame_tx_wire_tests.rs:3-8`:
-
-> Nothing in this suite pinned the frame-transaction encoding before: every frame-tx test either
-> round-trips (so a changed layout stays symmetric and invisible) or asserts behaviour. Changing
-> the envelope therefore passed 1367 tests without a murmur, while every joiner's transaction
-> builder would have broken.
-
-This library is that joiner's transaction builder, written to the published numbers rather than
-to ethrex's constants.
-
-**Primary goal is understanding, verifiably.** Every milestone terminates in a check that fails
-loudly when comprehension is wrong: an exact byte string, a field-by-field diff against the
-node, a recovered address, a gas figure from a real receipt.
-
-### Non-goal
-
-This is not a fork of, or a PR against, viem core. It is a standalone package with a viem
-*extension* surface (`client.extend()`), which is how tooling for unsettled EIPs normally
-ships. If the EIPs stabilize and viem wants frames in core, this becomes the reference an
-eventual PR borrows from.
-
-## 2. Scope
-
-### In scope
-
-Decoding, encoding, `sig_hash`, signing, the gas model, and `ethrex_simulateFrameTransaction`.
-
-`ethrex_simulateFrameTransaction` takes a **raw hex string** as its first parameter
-(`crates/networking/rpc/ethrex.rs:120`) and replays "EIP-8141 static constraints and signature
-authentication" (`ethrex.rs:44`). Simulation therefore requires a working encoder and real
-signatures — the encoder is on the critical path for the dry run, not just for sending.
-
-Signing uses a throwaway key that holds no funds. Nothing in either test suite can alter
-chain state.
-
-### Also in scope (added 2026-09-09)
-
-`eth_sendRawTransaction`, as `sendRawFrameTransaction` in `rpc` and
-`frameActions(client).sendFrameTransaction` in `viem`, plus a frame-aware receipt wait. The
-node takes the same `0x06 || rlp(body)` bytes it takes for simulation, and the hash it returns
-is checked against `keccak256` of those bytes — the mirror of the read-side pin.
-
-Admission still requires a sender whose VERIFY prefix calls `APPROVE`. A throwaway EOA cannot
-do that, so no test in this repository broadcasts: the hermetic suite stubs the node, and the
-`FRAMES_LIVE` suite remains read-only plus simulate. A live broadcast gate needs a deployed
-sender contract and a funded key; it is recorded in `OPEN-ITEMS.md`, not built.
-
-### Out of scope
-
-Key management beyond a throwaway signer. Blob data beyond carrying `blobVersionedHashes`
-through the envelope. UTXO frames — mode 5, EIP-8312, inert on this chain because
-`utxoFramesTime` is unset. Anything FOCIL or inclusion-list, which is consensus-side and not
-transaction-building. Any UI; the inspector is a separate later project that consumes this one.
-
-## 3. The envelope
-
-What the chain accepts (`scripts/hegota-testnet/frametx.py:11-17`):
-
-```
-raw = 0x06 || rlp([chain_id, nonce_keys, nonce_seq, sender, frames, signatures,
-                   fees, blob_hashes, recent_root_references])
-
-fees      = rlp([max_priority_fee, max_fee, max_blob_fee])
-frame     = rlp([mode, flags, target_or_empty, limits, value, data])
-limits    = rlp([execution, state])
-signature = rlp([scheme, signer, msg, signature_bytes])
-```
-
-`nonce` is a scalar u64 account nonce. The older experimental `nonce_keys`,
-`nonce_seq`, and `recent_root_references` fields are intentionally unsupported.
-
-A frame is:
+## 2. The envelope
 
 ```text
-[mode, flags, target, [execution_gas, state_gas], value, data]
+raw       = 0x06 || rlp([chain_id, nonce_keys, nonce_seq, sender, frames, signatures,
+                         fees, blob_versioned_hashes])
+fees      = [max_priority_fee_per_gas, max_fee_per_gas, max_fee_per_blob_gas]
+frame     = [mode, flags, target, limits, value, data]
+limits    = [execution, state]
+signature = [scheme, signer, msg, signature]
 ```
 
-A signature is:
+Integers are canonical minimal big-endian RLP: zero is the empty string, never `0x00`.
+`limits` is always two elements and `fees` always three, zeros included. An empty
+`target` means `tx.sender`; an empty `signer` is resolved per §3.
+
+Field widths are those ethrex decodes at: `chain_id` and `nonce_seq` are uint64; the nonce
+keys, all three fees and `value` are uint256; addresses are exactly 20 bytes. A wider value
+would encode to well-formed RLP that the node cannot decode.
+
+**Nonces (EIP-8250).** `nonce_keys` holds 1 to 16 strictly increasing keys; `nonce_seq`
+must be below `2**64 - 1` and equal the current sequence of every selected key. Key `0` is
+the sender's account nonce and is valid only as the sole key. Any other key is a slot of
+the `NONCE_MANAGER` predeploy at `0x0000000000000000000000000000000000008250`:
 
 ```text
-[scheme, signer, msg, signature]
+slot(sender, key) = keccak256(left_pad_32(sender) || uint256_be(key))
 ```
 
-All integer fields use canonical minimal big-endian RLP. Zero is the empty RLP string,
-not the byte `0x00`.
+An unused key reads zero. There is no RPC for keyed nonces; they are read with
+`eth_getStorageAt`.
 
-## Signature hash
+**Frames.** Modes are 0 DEFAULT, 1 VERIFY, 2 SENDER. `flags` bits 0-1 are the APPROVE scope
+(payment `0x1`, execution `0x2`), bit 2 marks an atomic batch, bits 3-7 are reserved and
+must be zero.
 
-The canonical signature hash is `keccak256(0x06 || rlp(payload))` after replacing the
-raw `signature` bytes of every signature whose `msg` is empty with `0x`. Frames and all
-other fields remain unchanged. Because the signature commits to the envelope, any wire
-format change must update encoding, decoding, hashing, signing, and fixtures together.
+**Structural rules** (`validateFrameTx`, transcribed from `validate_static_constraints`,
+`transaction.rs:2667`, checked in the same order): sender non-zero; the nonce rules above;
+1 to 64 frames; at most 6 blob hashes, each 32 bytes with the `0x01` KZG version byte, and
+`max_fee_per_blob_gas` zero without blobs; signature entries well-formed (§3); only SENDER
+frames carry value; `APPROVE_EXECUTION` only with an empty target or `tx.sender`; per-frame
+and cumulative limits within `2**63 - 1`; at most one expiry frame (VERIFY to `0x…8141`,
+flags 0, 8-byte data, `limits.state` 0); atomic batches never on a VERIFY frame or the
+last frame, never followed by a VERIFY frame, and no frame in a batch approving a scope.
+Rules that need chain state — nonce values, balances, the validation prefix — are the
+node's, and `simulateFrameTransaction` replays them.
 
-SECP256K1 signatures use `v || r || s`, with `v` normalized to a bare recovery id `0`
-or `1`. P256 and ARBITRARY entries are validated structurally but are not generated by
-`signFrameTx`.
+## 3. Signatures
 
-## Frame accounts
+**Signature hash.** `keccak256(0x06 || rlp(body))` with the `signature` bytes of every entry
+whose `msg` is empty replaced by `0x`. Every other field, frames included, is committed as
+encoded. An entry with an explicit 32-byte, non-zero `msg` signs that digest instead and
+its bytes stay in the hash.
 
-`FrameAccountImplementation` follows viem's implementation/resolved-account split.
-It supplies:
+**Schemes.**
 
-- `getAddress()`
-- `getNonce({ blockTag? })`
-- `getValidationData({ calls, chainId, nonce })`
-- `signFrameTransaction(transaction)`
-- an execution strategy
-
-`toEoaFrameAccount` implements protocol default-code validation for a code-less EOA.
-It reads the scalar nonce with `eth_getTransactionCount`, returns empty validation
-calldata, and installs one empty-message SECP256K1 signature entry.
-
-## Gas
-
-The mandatory gas terms are:
-
-```text
-12000
-+ 475 * len(frames)
-+ signature verification cost
-+ 6000 for each value transfer to an explicit non-sender target
-```
-
-Signature verification costs are ARBITRARY `100`, SECP256K1 `2800`, and P256 `6700`.
-Calldata cost and the calldata floor cover frame `data` and each signature's `signer`,
-`msg`, and `signature` bytes. Envelope RLP, nonce, and other scalar fields are not
-billed data. State gas is added on top of the calldata-floor branch.
-
-The historical `'chain'`, `'pins'`, and `'head'` parameters remain accepted by gas
-helpers as compatibility aliases; they currently use the same rules.
-
-## Module boundaries
-
-| Module | Responsibility |
-|---|---|
-| `types` | Public frame transaction and account-independent types |
-| `rlp` | Canonical scalar and offset-aware RLP helpers |
-| `envelope` | Encode, decode, and structural validation |
-| `sighash` | Canonical signature hash |
-| `signatures` | Signature validation, recovery, and signing |
-| `accounts` | Generic frame accounts and the direct EOA adapter |
-| `gas` | Pure gas and maximum-cost accounting |
-| `rpc` | Frame transaction/receipt JSON parsing and optional simulation wrapper |
-| `viem` | viem client extension |
-
-`gas` deliberately does not depend on `envelope`; this keeps accounting independently
-testable. `envelope` does not depend on `signatures`; the reverse direction is allowed.
-
-- **`value_cost`** — the chain charges `TX_VALUE_COST` for every frame with `value > 0`; the
-  pins charge it only when the frame has a target that is not `tx.sender`. A targetless or
-  self-targeted value frame is overcharged 6,000 on the live chain. The branch code at
-  `transaction.rs:2524-2531` already implements the pinned rule, so branch behaviour is
-  `'pins'` and deployed behaviour is `'chain'`.
-- **`SIGPARAM(0x03)`** — the chain returns `len(signature)` for every scheme; the pins permit it
-  for ARBITRARY entries only and require an exceptional halt otherwise. This one is not a gas
-  divergence and affects validation-prefix replay rather than the gas model, so it is recorded
-  but not modelled.
-
-The hermetic suite pins:
-
-- Ethrex v23's golden frame transaction bytes
-- Ethrex v23's canonical signature hash
-- strict canonical-RLP rejection and byte offsets
-- signature normalization and recovery
-- scalar nonce retrieval for EOAs
-- gas-accounting terms
-- RPC transaction and receipt formatting
-
-## 5. Modules
-
-Ten source files in dependency order. Nothing depends on anything above it.
-
-| Module | Responsibility | Depends on |
+| Scheme | Layout | Canonical form |
 |---|---|---|
-| `types` | The `FrameTransaction` shape and the `RuleSet` union. | viem types only |
-| `errors` | Typed error classes with stable `name`s. | — |
-| `rlp` | `rlpUint`, `parseRlpUint`, `byteLength`: minimal-scalar rules viem does not enforce; `walkRlp`, an offset-tracking RLP reader that rejects the non-canonical encodings `fromRlp` accepts. | `errors` |
-| `envelope` | `encodeFrameTx`, `decodeFrameTx`, `validateFrameTx`. Pure, no IO. | `rlp`, `errors`, `types`, viem `toRlp` |
-| `sighash` | The elision rule plus keccak256. | `envelope` |
-| `signatures` | Canonical rules, signer recovery, empty-signer resolution, signing (private key or external account), `assertValidFrameTx`. | `sighash`, `envelope` |
-| `gas` | The whole of §4, parameterized by rule set. Pure, no IO. | `rlp`, `errors`, `types` only |
-| `divergence` | `compareRuleSets` and the head EIP-8250 state-gas figure. | `gas` |
-| `rpc` | Typed `ethrex_simulateFrameTransaction` and `eth_sendRawTransaction` (hash-pinned); frame-aware transaction and receipt formatters. | `errors`, `types` only |
-| `viem` | `client.extend(frameActions)`. Thin — no wire logic of its own. | `envelope`, `signatures`, `rpc`, `gas` |
-| `fixtures` | The golden vector plus captured real transactions, as JSON. | — |
+| 0 ARBITRARY | any bytes | `signer` must be empty |
+| 1 SECP256K1 | `v \|\| r \|\| s`, 65 bytes | `v` a bare recovery id `0` or `1`, `0 < r < n`, `0 < s <= n/2` |
+| 2 P256 | `r \|\| s \|\| qx \|\| qy`, 128 bytes | `0 < r < n`, `0 < s <= n/2` |
 
-`gas` deliberately does not depend on `envelope` or `rpc`, and `rpc` does not depend on
-`envelope`. The gas model is the thing being learned, so it stays a pure function testable
-offline against a table of cases, and independently wrong or independently right of the
-encoder. The small duplication this causes (a `sameAddress` helper, the framing of two
-calldata blobs) is deliberate; `CONTRIBUTING.md` lists it among the rules that are not style
-preferences.
+The SECP256K1 layout is the reverse of Ethereum's usual `r || s || v`, and a 27/28 `v`
+invalidates the transaction at consensus. `signFrameTx` normalizes whatever a signer
+returns into this form.
 
-Crypto is borrowed, not written: viem supplies RLP, keccak256 and secp256k1. The envelope is
-hand-rolled because it is the object of study; ECDSA is not.
+**Signer resolution.** An empty `signer` resolves to `tx.sender` for SECP256K1 and P256.
+`signFrameTx` signs every empty-`msg` SECP256K1 entry whose resolved signer is the signing
+account, and refuses a signer that cannot sign a raw digest (EIP-191 `signMessage`, JSON-RPC
+accounts) rather than produce a signature that recovers to nothing.
 
-### The node's JSON surface
+## 4. Gas
 
-`eth_getTransactionByHash` returns a decoded frame transaction with fields `type`, `chainId`,
-`nonceKeys`, `nonceSeq`, `sender`, `frames`, `signatures`, `maxPriorityFeePerGas`,
-`maxFeePerGas`, `maxFeePerBlobGas`, `blobVersionedHashes`, `recentRootReferences`
-(`transaction.rs:4109-4155`).
+EIP-8141 constants, written as published figures in `gas.ts` and never derived:
 
-`eth_getTransactionReceipt` adds `payer` and `frameReceipts[]`, each entry carrying `status`,
-`gasUsed`, `stateGasUsed` and `logs` (`crates/networking/rpc/types/receipt.rs:33-47`).
-**`status` is three-valued: 0 failure, 1 success, 2 skipped** (atomic-batch failure). Skipped
-frames never executed and their gas was refunded, so collapsing 2 into "reverted" is wrong —
-this is precisely the defect in viem PR 4486 (§10).
+| Constant | Value |
+|---|---|
+| `FRAME_TX_INTRINSIC_COST` | 12,000 |
+| `FRAME_TX_PER_FRAME_COST` | 475 |
+| `FRAME_TX_VALUE_COST` | 6,000 |
+| Signature verification | ARBITRARY 100, SECP256K1 2,800, P256 6,700 |
+| `STANDARD_TOKEN_COST` / `TOTAL_COST_FLOOR_PER_TOKEN` | 4 / 16 |
+| `GAS_PER_BLOB` | 131,072 |
 
-`ethrex_simulateFrameTransaction` returns `valid`, `prefixShape`, `payer`, `maxCost`,
-`violation`, `gasUsed`, `frames[]` (`gasUsed`, `succeeded`), `executionStatus` and
-`executionError` (`crates/networking/rpc/ethrex.rs:41-95`). `prefixShape` is one of
-`SelfVerify`, `DeploySelfVerify`, `OnlyVerifyPay`, `DeployOnlyVerifyPay`. Its `valid` is
-necessary but not sufficient for admission: the gates shared with every other transaction type,
-and the per-sender pending-frame rule, are not replayed. `maxCost` is reported on every path,
-including structural rejection, because it is a pure function of the fields. Only `latest` is
-usable as the block parameter: the public node has pruned historical state.
-
-**No raw transaction bytes are served.** ethrex has no `eth_getRawTransactionByHash`
-(`Method not found`), and `debug_getRawTransaction` — present in the binary, and returning the
-canonical `0x06…` bytes — is refused by `rpc1.privacy.ethrex.xyz` (`not available on this
-endpoint`) despite `docs/hegota-testnet-spec.md:74` listing `debug` as exposed. The raw bytes of
-a live transaction can only be *reconstructed* from its JSON. This is not a weakness once
-noticed: the transaction hash is `keccak256(0x06 || rlp(body))`, so a reconstruction that
-reproduces the hash is the bytes, and a reconstruction that does not is a finding.
-
-## 6. Verification — three oracles
-
-All three get wired. Each catches what the others miss.
-
-**Oracle 1 — the golden vector.** Offline and exact. From
-`test/tests/common/frame_tx_wire_tests.rs:67-69`:
-
-```
-GOLDEN_RLP      = f8b301c1800794000000000000000000000000000000000000abcdeccc010380c48252088080821122de0280940000000000000000000000000000000000001234c4829c40808080f85cf85a0194000000000000000000000000000000000000abcd80b8410101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101cc843b9aca008506fc23ac0080c0c0
-GOLDEN_SIG_HASH = 0xd4df51143828c0338882dbd10c3308f3569972fe1928a7b5040ee18057920510
+```text
+mandatory     = 12000 + 475 * len(frames) + Σ signature cost
+                + 6000 per frame moving value to an explicit target other than the sender
+billed bytes  = each frame's data, each signature's signer, msg and signature,
+                and nonce_calldata = rlp(nonce_keys) || rlp(nonce_seq)
+data cost     = 4 per zero byte + 16 per non-zero byte, over the billed bytes
+intrinsic     = mandatory + data cost
+standard      = intrinsic + Σ limits.execution + Σ limits.state
+floor total   = mandatory + 16 * 4 * len(billed bytes)
+max_gas       = max(standard, floor total + Σ limits.state)
+max_cost      = max_gas * max_fee_per_gas + len(blobs) * 131072 * blob_base_fee
 ```
 
-The transaction it encodes (`frame_tx_wire_tests.rs:22-60`): `chain_id` 1, `nonce_keys` `[0]`,
-`nonce_seq` 7, `sender` `0x…abcd`, two frames — a targetless VERIFY with `flags` 3, execution
-limit `0x5208`, no state limit, data `0x1122`; then a SENDER frame targeting `0x…1234`,
-execution limit `0x9c40`, empty data — one SECP256K1 signature with signer `0x…abcd`, empty
-`msg`, 65 bytes of `0x01`, `max_priority_fee_per_gas` `0x3b9aca00`, `max_fee_per_gas`
-`0x6fc23ac00`, no blobs, no recent-root references.
+State gas is added on top of the calldata floor, never absorbed by it. The same holds for
+what a receipt reports:
+`gasUsed = max(intrinsic + Σ frame gasUsed, floor total) + Σ frame stateGasUsed`, less any
+storage refund, which frame receipts do not itemize.
 
-Catches absolute byte layout. Hermetic; runs in CI.
+**Nonce state gas.** Consuming a nonce charges state gas at execution time against the
+payment-approving frame's `limits.state`: `KEYED_NONCE_FIRST_USE_STATE_GAS` (97,920) for each
+non-zero key whose slot is still zero, and `NEW_ACCOUNT_STATE_GAS` (183,600) for key `[0]`
+from a sender that does not exist yet. These are budgeting figures for choosing
+`limits.state`, not terms of `frameTxGas`.
 
-**Oracle 2 — the transaction hash over a re-encoding of the node's JSON.** Parse the node's
-decoded JSON for a live transaction, re-encode it, and assert
-`keccak256(encodeFrameTx(parseRpcFrameTransaction(json))) === json.hash`. The hash is keccak256
-of the canonical bytes, so this pins the absolute layout of a real transaction as tightly as a
-raw-bytes diff would — and more tightly than a field-by-field diff of two decoders, which cannot
-see a mis-nesting both make. Then, decoder side, `decodeFrameTx(bytes)` must equal the parsed
-JSON. Needs no golden vector and no raw-bytes RPC. Verified on 2026-09-06 against three live
-transactions, one carrying two keyed nonces and a recent-root reference.
+The `'chain'`, `'pins'` and `'head'` rule-set arguments are compatibility aliases and price
+identically.
 
-Round-trip (`decode(encode(x)) === x`) is *also* implemented but never trusted alone: it is
-symmetric-blind, which is exactly how an envelope change passed 1367 ethrex tests.
+## 5. Accounts and preparation
 
-**Oracle 3 — semantic cross-checks against the chain.** For every captured transaction:
+A `FrameAccountImplementation` supplies `getAddress()`, `getNonce({ key?, blockTag? })` (the
+current sequence of one nonce key), `getValidationData({ calls, chainId, nonceKeys,
+nonceSeq })`, `signFrameTransaction(tx)` and an execution strategy; `toFrameAccount`
+resolves it into a `FrameAccount`.
 
-- Recovered signer equals the *resolved* signer — `signer`, or `sender` when `signer` is empty
-  — for SECP256K1 entries with an empty `msg`. On this chain the two usually differ: the
-  shielded pool's spends have the pool contract as `sender` and an EOA as `signer`.
-- Computed `max_cost` under `'chain'` matches `maxCost` from
-  `ethrex_simulateFrameTransaction` over our re-encoding — the node's figure computed from
-  our bytes, and a pure function of the fields, so it is hermetic once captured.
-- The receipt reconciles exactly: `gasUsed = frame_tx_intrinsic_gas + Σ frameReceipts[].gasUsed
-  + Σ frameReceipts[].stateGasUsed`. Observed with a zero delta on every live transaction
-  checked.
-- The node gets past signature authentication over our re-encoding: `violation` from
-  `ethrex_simulateFrameTransaction` is never "frame signature list does not authenticate the
-  sender". That is our `sig_hash` agreeing with the node's over a real signature.
+`toEoaFrameAccount` targets a code-less EOA through the protocol's default code: key `0`
+from `eth_getTransactionCount`, other keys from `NONCE_MANAGER` via `eth_getStorageAt`, empty
+validation data, and one empty-`msg`, empty-`signer` SECP256K1 entry.
 
-Oracle 3 is where the rule sets pay off. A `'pins'` model that disagrees with a live receipt by
-exactly 6,000 on a targetless value frame has independently reproduced divergence-ledger row
-3.8 rather than read about it. A disagreement that is *not* 6,000 and *not* explainable is a
-finding worth reporting.
+`prepareFrameTransaction(account, calls, limits, { nonceKeys?, blockTag? })` builds one
+VERIFY frame with scope `0x3` followed by one SENDER frame per call, reads fees from the node
+(`2 * baseFee + priorityFee`, or `eth_gasPrice` without a base fee), and defaults to
+`nonceKeys: [0n]` at `blockTag: 'pending'`. Selected keys must currently sit at the same
+sequence, since one `nonceSeq` is matched against all of them. The caller supplies every
+frame's limits.
+
+## 6. RPC surface
+
+**Transactions.** `eth_getTransactionByHash` returns `type` (`'0x6'`), `chainId`,
+`nonceKeys` (a list of quantities), `nonceSeq`, `sender`, `frames` (`mode`, `flags`, `to`,
+`gasLimit`, `stateGasLimit`, `value`, `data`), `signatures`, the three fees and
+`blobVersionedHashes`. The frame target is `to`, not `target`.
+
+The node serves no raw bytes: there is no `eth_getRawTransactionByHash`, and the public
+endpoint refuses `debug_getRawTransaction`. `getFrameTransaction` therefore re-encodes the
+JSON and refuses a result whose re-encoding does not hash to the transaction hash, which
+is `keccak256` of exactly the canonical bytes.
+
+**Receipts.** `eth_getTransactionReceipt` adds `payer` and `frameReceipts[]` with `status`,
+`gasUsed`, `stateGasUsed` and `logs`. Frame status is three-valued — `0` failure, `1`
+success, `2` skipped — and a skipped frame never executed; it is not a revert.
+
+**Broadcast.** `eth_sendRawTransaction` takes `0x06 || rlp(body)`; the returned hash is
+checked against `keccak256` of the bytes sent, and the request is not retried, so an
+accepted broadcast is never re-posted. Admission needs a VERIFY prefix that approves
+payment from a payer holding `max_cost`.
+
+**Simulation.** `ethrex_simulateFrameTransaction(raw, 'latest')` returns `valid`,
+`prefixShape` (`SelfVerify`, `DeploySelfVerify`, `OnlyVerifyPay`, `DeployOnlyVerifyPay`),
+`payer`, `maxCost`, `violation`, `gasUsed`, `frames[]` (`gasUsed`, `succeeded`),
+`executionStatus` and `executionError`. Each field is checked, not cast. `maxCost` is
+reported even on structural rejection. `valid: true` is necessary but not sufficient for
+admission, and only `latest` works: historical state is pruned.
 
 ## 7. Errors and strictness
 
-Encoding and inspecting want opposite defaults.
+Every error is a typed class with a stable `name`, following viem's conventions:
+`FrameEncodeError`, `FrameDecodeError` and `FrameRlpError`.
 
-**Encode is strict.** Reserved flag bits must be zero; signatures must be canonical; mode
-restricted to 0, 1, 2; structural limits enforced; `value` non-zero only on SENDER frames.
-Violations throw a typed error before any bytes are produced.
+**Encode is not validation.** `encodeFrameTx` encodes whatever it is given, because
+`frameTxSigHash` is defined over a re-encoding. The strict path is `assertValidFrameTx(tx)`
+(the §2 rules plus §3 canonicality) and then `encodeFrameTx(tx)`;
+`frameActions(client).sendFrameTransaction` walks it for you.
 
-**Decode is lenient.** It must decode anything the chain accepted, including shapes that look
-wrong, and surface them as findings rather than throwing — a surveyor that dies on one odd
-transaction cannot survey. Strict decode is not a flag: it is `decodeFrameTx(raw)` followed by
-`assertValidFrameTx(tx)`, so the strict rules live in one place instead of two. Malformed RLP
-produces a typed error carrying **the byte offset at which parsing failed**: `decodeFrameTx`
-walks the body with `walkRlp` (in `rlp.ts`), a small offset-tracking RLP reader, rather than
-viem's `fromRlp`, which exposes no offset. The offset is into the full transaction, counting
-the `0x06` type byte as byte 0, so it indexes straight into the hex the caller passed.
-`walkRlp` also rejects **non-canonical RLP** — a long-form encoding of a single-byte scalar,
-say — at the offending byte, because ethrex rejects those bytes at RLP decode while `fromRlp`
-silently canonicalizes them; that is a well-formedness rule about the bytes, not a structural
-rule about the transaction, so it does not make decode any less lenient about the shapes the
-chain actually accepted. It also keeps the two guards `fromRlp` applied and a bare
-`hexToBytes` does not: a non-byte-aligned string is rejected rather than nibble-padded, and
-nesting is capped at 1024 so pathological input throws a typed error instead of exhausting
-the stack. A re-encoding is still compared against the input as a cheap independent
-backstop; that comparison carries no offset, since a mismatch could be anywhere.
+**Decode is lenient about shapes, strict about bytes.** `decodeFrameTx` accepts any
+structure the chain accepted, but walks the body with `walkRlp` rather than viem's
+`fromRlp`, so it rejects what ethrex rejects at RLP decode: a long-form single-byte scalar,
+a non-minimal length or leading zero, a non-byte-aligned string, nesting deeper than 1024.
+Malformed RLP produces a typed error carrying the byte offset at which parsing failed,
+counting the `0x06` type byte as byte 0. A re-encoding is also compared against the input
+as a backstop. Strict decode is `decodeFrameTx(raw)` followed by `assertValidFrameTx(tx)`.
 
-Every error is a typed class with a stable `name`, following viem's error conventions so the
-extension surface composes with viem's own error handling.
+## 8. Modules
 
-## 8. Testing and repo mechanics
+| Module | Responsibility | Depends on |
+|---|---|---|
+| `types`, `errors` | The transaction shape; typed errors | — |
+| `rlp` | Minimal scalars, `walkRlp` | `errors` |
+| `envelope` | `encodeFrameTx`, `decodeFrameTx`, `validateFrameTx` | `rlp`, `errors`, `types` |
+| `sighash` | `frameTxSigHash` | `envelope` |
+| `signatures` | Canonicality, recovery, signer resolution, `signFrameTx`, `assertValidFrameTx` | `sighash`, `envelope` |
+| `gas` | `frameTxGas`, `frameTxMaxCost`, `nonceCalldata` | `rlp`, `types` |
+| `divergence` | `compareRuleSets` | `gas` |
+| `nonce` | `NONCE_MANAGER`, `keyedNonceSlot`, `getFrameNonceSeq` | `errors` |
+| `rpc` | Transaction and receipt parsing, simulate, broadcast | `errors`, `types` |
+| `accounts`, `prepareFrameTransaction`, `signFrameTransaction` | Frame accounts and transaction preparation | `envelope`, `signatures`, `nonce` |
+| `viem` | `frameActions`, no wire logic of its own | `envelope`, `signatures`, `rpc`, `gas` |
 
-TypeScript in strict mode; Vitest, which is viem's own runner; the package exports a root entry
-point and a `./viem` entry point (`@jaw.id/frametx-kit/viem`) for the extension surface.
+Nothing imports upward. `gas` does not import `envelope`, so the gas model stays
+independently testable; `envelope` does not import `signatures`.
 
-Two suites. The **default suite is hermetic**, running entirely off checked-in fixtures, so CI
-never depends on a testnet staying up. The **`test:live` suite** is opt-in behind an env var
-and hits `https://rpc1.privacy.ethrex.xyz`.
+## 9. Testing
 
-Fixtures are captured by a script so they can be refreshed. They will need refreshing: both
-divergences are "fixed on the branch, on the chain at the next relaunch", and a re-genesis
-wipes the chain — this one is already the third genesis, the previous chain having ended at
-block 313,106. Fixtures record the `web3_clientVersion` and genesis hash they were captured
-against, so a stale fixture set is detectable rather than silently wrong.
-
-Development is test-first throughout: each milestone's oracle is written before the code that
-satisfies it.
-
-## 9. Milestones
-
-Each terminates in a check that fails loudly when understanding is wrong.
-
-1. **Decode.** Raw hex to structured object. Gate: decode `GOLDEN_RLP` to the documented
-   transaction. (Oracle 2 over live transactions needs the encoder and the RPC parser, so it
-   lands with milestones 2 and 5's RPC formatters, not here.)
-2. **Encode and `sig_hash`.** Gate: reproduce `GOLDEN_RLP` and `GOLDEN_SIG_HASH` byte-for-byte
-   from a hand-built transaction. Passing this means the envelope is understood.
-3. **Signatures.** Canonical rules, recovery, P256 normalization. Gate: recovered signer equals
-   `sender` for every captured SECP256K1 transaction.
-4. **Gas model with rule sets.** Gate: `'chain'` agrees with live receipts and with simulated
-   `maxCost`; `'pins'` disagrees only where the ledger says it should, by the amount it says.
-5. **Simulate.** Typed `ethrex_simulateFrameTransaction`. Gate: a hand-built, throwaway-signed
-   SelfVerify transaction (a VERIFY frame with scope `0x3` — a SENDER frame opens no recognized
-   prefix) returns `prefixShape: 'SelfVerify'` and a `maxCost` equal to ours. It cannot return
-   `valid: true`: the shape is derived after signature authentication, so a recognized shape
-   proves decoding and authentication, but a throwaway EOA has no code to call `APPROVE`, and
-   the node answers `valid: false, violation: "validation prefix frame reverted"`. A `valid:
-   true` gate needs a deployed sender contract, which is an open item rather than a milestone.
-6. **viem extension.** Gate: `client.extend(frameActions)` reads a frame transaction and its
-   three-valued frame receipts through ordinary viem ergonomics.
-7. **Broadcast.** `sendFrameTransaction` and `waitForFrameTransactionReceipt`. Gate: hermetic
-   only — the bytes posted equal `encodeFrameTx` of the input, a hash that is not
-   `keccak256` of those bytes is refused, and a skipped frame survives the receipt wait as
-   `'skipped'`. The live gate (a `valid: true` simulation followed by an accepted broadcast)
-   needs a deployed sender contract and is an open item.
-
-## 10. Candidate contributions
-
-Byproducts, each independently useful and none required by the milestones. Recorded here so
-they are not lost; whether to file them is the author's call.
-
-1. **viem PR 4486 — frame receipt status collapse.** `transactionReceipt.ts` maps
-   `status: fr.status === '0x1' ? 'success' : 'reverted'`, silently reporting every skipped
-   frame as reverted. Status is three-valued (`receipt.rs:35`; semantics merged upstream as
-   EIPs PR-12061). The same formatter also drops `stateGasUsed`.
-2. **`docs/eip-8141.md:78` — stale wire layout.** Documents the pre-composition envelope; a
-   builder written from it produces bytes the chain rejects.
-3. **`docs/eip-8141.md:362` — stale intrinsic and incomplete formulas.** Says 15000; the
-   published figure and the code are 12000. The gas formulas there omit `state_gas_limit` and
-   `recent_root_reference_intrinsic_gas`.
-4. **Whatever Oracle 3 turns up** that the divergence ledger does not already explain.
-5. **`docs/hegota-testnet-spec.md:74` — `debug` listed as served, but refused.** The endpoint
-   answers `debug_getRawTransaction` with `-32601 "not available on this endpoint"`. Either the
-   page or the proxy is wrong, and a joiner building on raw-bytes retrieval from that page is
-   misled. The same report can ask for `eth_getRawTransactionByHash`, which every other client
-   serves.
-
-## 11. Open questions
-
-None blocking. Two to settle during implementation, both low-stakes and reversible:
-
-- Whether to depend on viem directly or on `ox`, the lower-level library viem builds on. viem
-  is assumed here because the extension surface requires it anyway; `ox` would only reduce the
-  core module's dependency weight, and the decision can be deferred until the core is green.
-- Whether the `'head'` EIP-8272 envelope change ever needs a serializer. `toHeadShape` covers
-  pricing without one; bytes are only justified once that draft stops moving.
+The default suite is hermetic. It pins the golden vector and sig-hash transcribed from
+`frame_tx_wire_tests.rs:69-70`, the published gas figures, and a set of captured chain
+transactions checked end to end (hash, signer, `maxCost`, receipt gas). The `test:live`
+suite, gated on `FRAMES_LIVE=1`, is read-only. Broadcasting is checked manually with
+`scripts/send-eth-eoa.ts`. `CONTRIBUTING.md` covers running, refreshing and extending the
+tests.

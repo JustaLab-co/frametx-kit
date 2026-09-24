@@ -60,7 +60,8 @@
     "ethereum",
     "eip-8141",
     "frame-transaction",
-    "frames-devnet",
+    "eip-8250",
+    "hegota-testnet",
     "ethrex",
     "viem",
     "rlp"

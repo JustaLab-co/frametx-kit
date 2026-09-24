@@ -26,7 +26,7 @@ describe('toFrameAccount', () => {
       extend: { implementationName: 'test-account' as const },
       async getAddress() { return address },
       async getNonce() { return 1n },
-      async getValidationData({ nonce }) { return nonce === 1n ? '0xabcd' : '0x' },
+      async getValidationData({ nonceSeq }) { return nonceSeq === 1n ? '0xabcd' : '0x' },
       async signFrameTransaction(transaction) { return transaction },
     })
 
@@ -34,7 +34,9 @@ describe('toFrameAccount', () => {
     expect(account.type).toBe('frame')
     expect(account.implementationName).toBe('test-account')
     expect(await account.getNonce()).toBe(1n)
-    expect(await account.getValidationData({ calls: [], chainId: 1n, nonce: 1n })).toBe('0xabcd')
+    expect(
+      await account.getValidationData({ calls: [], chainId: 1n, nonceKeys: [0n], nonceSeq: 1n }),
+    ).toBe('0xabcd')
     expect(await account.signFrameTransaction(GOLDEN_TX as FrameTransaction)).toBe(GOLDEN_TX)
   })
 
@@ -72,13 +74,15 @@ describe('toEoaFrameAccount', () => {
     const account = await toEoaFrameAccount({ client, owner })
     const unsigned = { ...GOLDEN_TX, sender: owner.address, signatures: [] }
 
-    expect(await account.getValidationData({ calls: [], chainId: 1n, nonce: 0n })).toBe('0x')
+    expect(
+      await account.getValidationData({ calls: [], chainId: 1n, nonceKeys: [0n], nonceSeq: 0n }),
+    ).toBe('0x')
     const signed = await account.signFrameTransaction(unsigned)
     expect(signed.signatures[0]).toMatchObject({ scheme: 1, signer: null, msg: '0x' })
     expect(await recoverFrameSigner(signed, 0)).toBe(owner.address)
   })
 
-  test('reads the pending scalar account nonce', async () => {
+  test('reads key 0 from the pending account nonce', async () => {
     const owner = privateKeyToAccount(OWNER_KEY)
     const requests: { method: string; params?: unknown }[] = []
     const client = createClient({
@@ -96,6 +100,36 @@ describe('toEoaFrameAccount', () => {
     expect(await account.getNonce()).toBe(7n)
     expect(requests).toEqual([
       { method: 'eth_getTransactionCount', params: [owner.address, 'pending'] },
+    ])
+  })
+
+  test('reads a non-zero key from its NONCE_MANAGER slot', async () => {
+    const owner = privateKeyToAccount(OWNER_KEY)
+    const requests: { method: string; params?: unknown }[] = []
+    const client = createClient({
+      account: owner,
+      chain: mainnet,
+      transport: custom({
+        async request(request) {
+          requests.push(request)
+          return `0x${'00'.repeat(31)}03`
+        },
+      }),
+    })
+    const account = await toEoaFrameAccount({ client, owner })
+
+    expect(await account.getNonce({ key: 5n, blockTag: 'latest' })).toBe(3n)
+    // Slot computed independently: `cast keccak` over
+    // left_pad_32(0x19E7…ff2A) || uint256(5).
+    expect(requests).toEqual([
+      {
+        method: 'eth_getStorageAt',
+        params: [
+          '0x0000000000000000000000000000000000008250',
+          '0x91532bb988e1829b215838c387168ecc92dc12a6ace9895d81f60d6eebf505d4',
+          'latest',
+        ],
+      },
     ])
   })
 

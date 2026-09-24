@@ -5,8 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/JustaLab-co/frametx-kit/badge)](https://scorecard.dev/viewer/?uri=github.com/JustaLab-co/frametx-kit)
 
-TypeScript for the current **EIP-8141 frame transaction** envelope implemented by
-the Ethrex frames devnet (chain ID `81410`).
+TypeScript for the **EIP-8141 frame transaction** envelope, with EIP-8250 keyed nonces,
+as the Ethrex hegota-testnet (chain ID `8141`) accepts it.
 
 Decode, build, hash, sign, price, dry-run and broadcast.
 
@@ -26,7 +26,7 @@ import { createPublicClient, http } from 'viem'
 import { frameActions } from '@jaw.id/frametx-kit/viem'
 
 const client = createPublicClient({
-  transport: http('https://rpc1.frames.ethrex.xyz'),
+  transport: http('https://rpc1.privacy.ethrex.xyz'),
 }).extend(frameActions)
 
 const tx = await client.getFrameTransaction({ hash })
@@ -82,10 +82,22 @@ const hash = await client.sendFrameTransaction({ transaction: signed })
 const receipt = await client.waitForFrameTransactionReceipt({ hash })
 ```
 
-Passing every check here does not guarantee admission. On this chain the VERIFY prefix must
-call `APPROVE`, which a plain EOA sender cannot do, so a broadcastable transaction needs a
-sender contract and a funded key — both are yours, not this library's. Dry-run with
+Passing every check here does not guarantee admission. The VERIFY prefix must `APPROVE`
+payment, and the payer must hold the transaction's `maxCost`, or the frame reverts. A
+code-less EOA gets that from the protocol's default code, which `toEoaFrameAccount` targets;
+anything else needs its own validating contract. Dry-run with
 `client.simulateFrameTransaction({ raw })` before spending.
+
+## Nonces are keyed
+
+A transaction carries `nonceKeys` and one `nonceSeq` (EIP-8250), not a scalar `nonce`.
+`[0n]` is the ordinary account nonce and is what `prepareFrameTransaction` uses by
+default. Any other key lives in the `NONCE_MANAGER` predeploy; `getFrameNonceSeq` reads
+either kind, and `prepareFrameTransaction(account, calls, limits, { nonceKeys: [1n, 2n] })`
+selects several, provided they currently sit at the same sequence.
+
+The first use of a non-zero key costs `KEYED_NONCE_FIRST_USE_STATE_GAS` (97,920) of state
+gas, charged against the payment-approving frame's `limits.state`. Budget for it.
 
 ## Two things that will bite you
 
@@ -99,7 +111,8 @@ can put back on the wire byte-for-byte.
 
 ## Gas
 
-`frameTxGas` prices the current EIP-8141 transaction shape. The historical
+`frameTxGas` prices the EIP-8141 transaction shape, including EIP-8250's nonce
+calldata. The historical
 `'chain'`, `'pins'`, and `'head'` rule-set names remain accepted as compatibility
 aliases and currently produce identical results.
 
@@ -142,9 +155,8 @@ are the coverage gaps that need a captured transaction rather than a design deci
 ## Docs
 
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — architecture, invariants, wire-format traps, how
-  the verification oracles work
+  the tests work
 - [`docs/DESIGN.md`](docs/DESIGN.md) — the binding design spec
-- [`docs/OPEN-ITEMS.md`](docs/OPEN-ITEMS.md) — known gaps and unfinished work
 - [`SECURITY.md`](SECURITY.md) — what counts as a vulnerability here, and how to report it
 - [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — expected conduct in issues and pull requests
 

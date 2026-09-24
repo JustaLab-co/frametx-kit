@@ -17,8 +17,8 @@ export type GasDivergence = {
  * on live chain data that the divergence ledger does not already explain is a
  * finding worth reporting.
  *
- * The rule-set names are compatibility aliases now that the current envelope
- * has removed the keyed-nonce and recent-root extensions.
+ * The rule-set names are compatibility aliases: hegota-testnet prices every
+ * frame transaction under one set of rules, keyed nonces included.
  */
 export function compareRuleSets(
   tx: FrameTransaction,

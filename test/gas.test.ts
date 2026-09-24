@@ -1,24 +1,53 @@
 import { describe, expect, test } from 'vitest'
-import { frameTxGas, frameTxMaxCost } from '../src/gas.js'
+import { frameTxGas, frameTxMaxCost, nonceCalldata } from '../src/gas.js'
 import { GOLDEN_TX } from './fixtures/golden.js'
 
+// Hand derivation for the golden vector. Billed fields, at 4 gas per zero byte
+// and 16 per non-zero byte:
+//   frame 0 data 0x1122                      2 bytes   2 non-zero        32
+//   frame 1 data (empty)                     0 bytes                      0
+//   signer 0x…abcd                          20 bytes  18 zero, 2 non-zero 104
+//   msg (empty)                              0 bytes                      0
+//   signature 0x01 * 65                     65 bytes  65 non-zero      1040
+//   nonce calldata rlp([0]) || rlp(7) = c180 07  3 bytes  3 non-zero     48
+//   total                                   90 bytes                   1224
+// mandatory = 12000 + 2 * 475 + 2800 (SECP256K1)                      15750
+// execution limits = 0x5208 + 0x9c40 = 21000 + 40000                  61000
 describe('frameTxGas on the golden vector', () => {
   const gas = frameTxGas(GOLDEN_TX, 'chain')
 
   test('mandatory gas', () => expect(gas.mandatoryGas).toBe(15_750n))
-  test('billed byte count', () => expect(gas.billedBytes).toBe(87n))
-  test('data cost', () => expect(gas.dataCost).toBe(1_176n))
-  test('intrinsic gas', () => expect(gas.intrinsicGas).toBe(16_926n))
-  test('state gas limit', () => expect(gas.stateGasLimit).toBe(2_000_000n))
-  test('standard gas limit', () => expect(gas.standardGasLimit).toBe(2_077_926n))
-  test('calldata tokens', () => expect(gas.calldataTokens).toBe(348n))
-  test('calldata floor total', () => expect(gas.calldataFloorTotal).toBe(21_318n))
-  test('max gas takes the standard branch', () => expect(gas.maxGas).toBe(2_077_926n))
+  test('billed byte count', () => expect(gas.billedBytes).toBe(90n))
+  test('data cost', () => expect(gas.dataCost).toBe(1_224n))
+  test('intrinsic gas', () => expect(gas.intrinsicGas).toBe(16_974n))
+  test('state gas limit', () => expect(gas.stateGasLimit).toBe(0n))
+  // 16974 + 61000 + 0
+  test('standard gas limit', () => expect(gas.standardGasLimit).toBe(77_974n))
+  // 90 * 4
+  test('calldata tokens', () => expect(gas.calldataTokens).toBe(360n))
+  // 15750 + 360 * 16
+  test('calldata floor total', () => expect(gas.calldataFloorTotal).toBe(21_510n))
+  test('max gas takes the standard branch', () => expect(gas.maxGas).toBe(77_974n))
+})
+
+describe('EIP-8250 nonce calldata', () => {
+  test('is rlp(nonce_keys) || rlp(nonce_seq)', () => {
+    expect(nonceCalldata(GOLDEN_TX)).toBe('0xc18007')
+  })
+
+  test('is billed for a keyed nonce at the calldata rate', () => {
+    // rlp([1, 2**255]) = e2 01 a0 80 00*31 (35 bytes), rlp(7) = 07: 36 bytes,
+    // 31 of them zero. 5 * 16 + 31 * 4 = 204, against 48 for the golden `[0]`.
+    const keyed = { ...GOLDEN_TX, nonceKeys: [1n, 2n ** 255n] }
+    expect(frameTxGas(keyed, 'chain').billedBytes).toBe(90n - 3n + 36n)
+    expect(frameTxGas(keyed, 'chain').dataCost).toBe(1_224n - 48n + 204n)
+  })
 })
 
 describe('frameTxMaxCost', () => {
   test('is maxGas * maxFeePerGas with no blobs', () => {
-    expect(frameTxMaxCost(GOLDEN_TX, 0n, 'chain')).toBe(62_337_780_000_000_000n)
+    // 77974 * 0x6fc23ac00 (30 gwei)
+    expect(frameTxMaxCost(GOLDEN_TX, 0n, 'chain')).toBe(2_339_220_000_000_000n)
   })
 
   test('adds the blob term at the base rate', () => {

@@ -7,23 +7,31 @@ describe('encodeFrameTx', () => {
     expect(encodeFrameTx(GOLDEN_TX)).toBe(GOLDEN_RLP)
   })
 
-  test('encodes nonce zero as an empty RLP string, not 0x00', () => {
-    const encoded = encodeFrameTx({ ...GOLDEN_TX, nonce: 0n })
+  test('encodes nonceSeq zero as an empty RLP string, not 0x00', () => {
+    const encoded = encodeFrameTx({ ...GOLDEN_TX, nonceSeq: 0n })
     expect(encoded).not.toBe(GOLDEN_RLP)
-    expect(encoded).toContain('018094')
+    // chainId 1, nonceKeys [0] as `c1 80`, nonceSeq 0 as `80`, then the sender.
+    expect(encoded.slice(0, 18)).toBe('0x06f8b201c1808094')
+  })
+
+  test('encodes nonceKeys as a list of minimal uint256 scalars', () => {
+    const encoded = encodeFrameTx({ ...GOLDEN_TX, nonceKeys: [1n, 2n ** 255n] })
+    // `e2` lists 34 bytes: `01`, then `a0` and the 32-byte key; `07` is nonceSeq.
+    expect(encoded).toContain(`01e201a080${'00'.repeat(31)}07`)
   })
 
   test('a targetless frame encodes an empty target, not 20 zero bytes', () => {
     const encoded = encodeFrameTx(GOLDEN_TX)
-    expect(encoded).toContain('cf010380c7825208831e8480')
+    expect(encoded).toContain('cc010380c48252088080')
   })
 
   test('encodeFrameTxBody is the wire encoding minus the 0x06 type byte', () => {
     expect(encodeFrameTx(GOLDEN_TX)).toBe(`0x06${encodeFrameTxBody(GOLDEN_TX).slice(2)}`)
   })
 
-  test('limits always encode as a two-element list', () => {
-    expect(encodeFrameTx(GOLDEN_TX)).toContain('c7825208831e8480')
+  test('limits always encode as a two-element list, even with zero state', () => {
+    // c4 (825208)(80): the golden VERIFY frame's state limit is zero.
+    expect(encodeFrameTx(GOLDEN_TX)).toContain('c482520880')
   })
 
   test('the fees list always has three entries, even when maxFeePerBlobGas is zero', () => {

@@ -1,8 +1,5 @@
 /**
- * Legacy fixture capture script for the retired chain-8141 envelope.
- *
- * Do not use this to produce current wire-format fixtures. The frames-devnet RPC
- * does not expose the simulation method this historical capture flow requires.
+ * Capture live hegota-testnet frame transactions as test fixtures.
  *
  * The public endpoint serves no raw transaction bytes — ethrex has no
  * `eth_getRawTransactionByHash`, and `debug_getRawTransaction` is refused by
@@ -12,14 +9,14 @@
  * raw bytes are re-derived by the tests and pinned by the transaction hash,
  * which is keccak256 of exactly those bytes.
  *
- * Records the client version and genesis hash each capture was taken against, so
- * a stale fixture set after a re-genesis is detectable rather than silently
- * wrong. This chain is already on its third genesis; both known divergences are
- * fixed on the branch and land on the chain at the next relaunch.
+ * Each capture also records the client version and genesis hash it was taken
+ * against, as provenance.
  *
- * Usage: bunx tsx scripts/capture-fixtures.ts [from-block] [to-block]
- *   Defaults to the last 500 blocks. Frame transactions are sparse; on the third
- *   genesis, blocks 2782, 2787 and 2792 are known to carry one each.
+ * Usage:
+ *   bunx tsx scripts/capture-fixtures.ts [from-block] [to-block]
+ *     Defaults to the last 500 blocks. Frame transactions are sparse.
+ *   bunx tsx scripts/capture-fixtures.ts 0x<hash> [0x<hash> ...]
+ *     Capture the named transactions.
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { type Hex, keccak256 } from 'viem'
@@ -56,62 +53,82 @@ async function main() {
   const genesis = await rpc<{ hash: Hex }>('eth_getBlockByNumber', ['0x0', false])
   const head = BigInt(await rpc<Hex>('eth_blockNumber', []))
 
-  const to = process.argv[3] ? BigInt(process.argv[3]) : head
-  const from = process.argv[2] ? BigInt(process.argv[2]) : to > 500n ? to - 500n : 0n
-
   mkdirSync(OUT_DIR, { recursive: true })
   const captured: string[] = []
 
-  for (let n = from; n <= to; n++) {
-    const block = await rpc<{ transactions: HydratedTx[] }>('eth_getBlockByNumber', [
-      `0x${n.toString(16)}`,
-      true,
-    ])
-    for (const tx of block.transactions) {
-      if (tx.type !== '0x6') continue // `{:#x}` of 6 is one hex digit, not two
+  const args = process.argv.slice(2)
+  const byHash = args.length > 0 && args.every((a) => /^0x[0-9a-fA-F]{64}$/.test(a))
+  const to = !byHash && args[1] ? BigInt(args[1]) : head
+  const from = !byHash && args[0] ? BigInt(args[0]) : to > 500n ? to - 500n : 0n
 
-      const receipt = await rpc<unknown>('eth_getTransactionReceipt', [tx.hash])
-
-      // Our re-encoding. Checked against the hash here only to WARN: a mismatch is
-      // a finding for Oracle 2 in test/oracles.test.ts, which fails loudly, so
-      // the fixture is still written. `simulate` over wrong bytes is then noise.
-      const raw = encodeFrameTx(parseRpcFrameTransaction(tx))
-      if (keccak256(raw) !== tx.hash)
-        console.warn(`block ${n} ${tx.hash}: re-encoding does not reproduce the hash`)
-
-      // The node's verdict on our bytes. `maxCost` is a pure function of the
-      // fields (hermetic oracle); `violation` records how far the node got —
-      // anything past "does not authenticate the sender" means our sig_hash
-      // over a real signature matched. Only `latest` is available: state is pruned.
-      const simulate = await rpc<unknown>('ethrex_simulateFrameTransaction', [raw, 'latest'])
-
-      writeFileSync(
-        new URL(`${tx.hash}.json`, OUT_DIR),
-        `${JSON.stringify(
-          {
-            meta: {
-              clientVersion,
-              genesisHash: genesis.hash,
-              capturedAt: new Date().toISOString(),
-              block: n.toString(),
-              rawSource: 'reconstructed from JSON; pinned by hash in test/oracles.test.ts',
-            },
-            tx,
-            receipt,
-            simulate,
-          },
-          null,
-          2,
-        )}\n`,
-      )
-      captured.push(tx.hash)
-      console.log(`block ${n}: ${tx.hash}`)
+  async function* frameTransactions(): AsyncGenerator<{ n: bigint; tx: HydratedTx }> {
+    if (byHash) {
+      for (const hash of args) {
+        const tx = await rpc<(HydratedTx & { blockNumber: Hex }) | null>(
+          'eth_getTransactionByHash',
+          [hash],
+        )
+        if (tx === null) throw new Error(`${hash}: not found`)
+        yield { n: BigInt(tx.blockNumber), tx }
+      }
+      return
+    }
+    for (let n = from; n <= to; n++) {
+      const block = await rpc<{ transactions: HydratedTx[] }>('eth_getBlockByNumber', [
+        `0x${n.toString(16)}`,
+        true,
+      ])
+      for (const tx of block.transactions) yield { n, tx }
     }
   }
 
-  console.log(`captured ${captured.length} frame transactions from blocks ${from}..${to}`)
-  if (captured.length === 0)
-    console.warn('no type-0x06 transactions found — widen the range, or try `2780 2800`')
+  for await (const { n, tx } of frameTransactions()) {
+    if (tx.type !== '0x6') continue // `{:#x}` of 6 is one hex digit, not two
+
+    const receipt = await rpc<unknown>('eth_getTransactionReceipt', [tx.hash])
+
+    // Our re-encoding. Checked against the hash here only to WARN: a mismatch is
+    // a finding for Oracle 2 in test/oracles.test.ts, which fails loudly, so
+    // the fixture is still written. `simulate` over wrong bytes is then noise.
+    const raw = encodeFrameTx(parseRpcFrameTransaction(tx))
+    if (keccak256(raw) !== tx.hash)
+      console.warn(`block ${n} ${tx.hash}: re-encoding does not reproduce the hash`)
+
+    // The node's verdict on our bytes. `maxCost` is a pure function of the
+    // fields (hermetic oracle); `violation` records how far the node got —
+    // anything past "does not authenticate the sender" means our sig_hash
+    // over a real signature matched. Only `latest` is available: state is pruned.
+    const simulate = await rpc<unknown>('ethrex_simulateFrameTransaction', [raw, 'latest'])
+
+    writeFileSync(
+      new URL(`${tx.hash}.json`, OUT_DIR),
+      `${JSON.stringify(
+        {
+          meta: {
+            clientVersion,
+            genesisHash: genesis.hash,
+            capturedAt: new Date().toISOString(),
+            block: n.toString(),
+            rawSource: 'reconstructed from JSON; pinned by hash in test/oracles.test.ts',
+          },
+          tx,
+          receipt,
+          simulate,
+        },
+        null,
+        2,
+      )}\n`,
+    )
+    captured.push(tx.hash)
+    console.log(`block ${n}: ${tx.hash}`)
+  }
+
+  console.log(
+    byHash
+      ? `captured ${captured.length} frame transactions by hash`
+      : `captured ${captured.length} frame transactions from blocks ${from}..${to}`,
+  )
+  if (captured.length === 0) console.warn('no type-0x06 transactions found — widen the range')
 }
 
 main().catch((error) => {
