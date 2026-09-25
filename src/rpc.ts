@@ -14,7 +14,8 @@ export type RpcFrameTransaction = {
   /** Present on `eth_getTransactionByHash` and hydrated blocks; absent on hand-written fixtures. */
   hash?: Hex
   chainId: Hex
-  nonce: Hex
+  nonceKeys: readonly Hex[]
+  nonceSeq: Hex
   sender: Address
   frames: readonly {
     mode: Hex
@@ -126,7 +127,8 @@ export function parseRpcFrameTransaction(json: RpcFrameTransaction): FrameTransa
 
   return {
     chainId: BigInt(json.chainId),
-    nonce: BigInt(json.nonce),
+    nonceKeys: json.nonceKeys.map((k) => BigInt(k)),
+    nonceSeq: BigInt(json.nonceSeq),
     sender: getAddress(json.sender),
     frames,
     signatures,
@@ -346,7 +348,7 @@ export function parseSimulateResult(
     prefixShape: asUnion(result.prefixShape, PREFIX_SHAPES, 'prefixShape'),
     payer: asOptionalAddress(result.payer, 'payer'),
     // Reported on every path, structural rejection included, because it is a
-    // pure function of the fields (DESIGN.md §5, "The node's JSON surface").
+    // pure function of the fields (DESIGN.md §6, "Simulation").
     maxCost: asHexScalar(result.maxCost, 'maxCost'),
     violation: asOptionalString(result.violation, 'violation'),
     gasUsed: asOptionalHexScalar(result.gasUsed, 'gasUsed'),

@@ -1,5 +1,5 @@
 import type { BlockTag, Chain, Hex } from 'viem'
-import { MAX_FRAMES } from './envelope.js'
+import { MAX_FRAMES, assertNonceKeys } from './envelope.js'
 import { FrameEncodeError } from './errors.js'
 import type { FrameAccount, FrameAccountImplementation, FrameCall } from './accounts/types.js'
 import type { FrameLimits, FrameTransaction } from './types.js'
@@ -14,6 +14,14 @@ export type PrepareFrameLimits = {
 export type PrepareFrameTransactionOptions = {
   /** State used for nonce and fee reads. */
   blockTag?: BlockTag | undefined
+  /**
+   * EIP-8250 nonce keys to consume. Defaults to `[0n]`, the account nonce. With
+   * several keys, every key must currently sit at the same sequence, because one
+   * `nonceSeq` is matched against all of them. The list must also pass the
+   * static EIP-8250 rules: at most `MAX_NONCE_KEYS`, strictly increasing, and
+   * key `0` only on its own.
+   */
+  nonceKeys?: readonly bigint[] | undefined
 }
 
 type RpcBlock = {
@@ -89,16 +97,30 @@ export async function prepareFrameTransaction<
     assertLimits(limits, `frameLimits.calls[${index}]`)
 
   const blockTag = options.blockTag ?? 'pending'
-  const [nonce, fees] = await Promise.all([
-    account.getNonce({ blockTag }),
+  const nonceKeys = [...(options.nonceKeys ?? [0n])]
+  assertNonceKeys(nonceKeys)
+  const [sequences, fees] = await Promise.all([
+    Promise.all(nonceKeys.map((key) => account.getNonce({ key, blockTag }))),
     getFees(account, blockTag),
   ])
+  const nonceSeq = sequences[0]!
+  for (const [index, sequence] of sequences.entries())
+    if (sequence !== nonceSeq)
+      throw new FrameEncodeError(
+        `nonce keys are at different sequences: key ${nonceKeys[0]} is at ${nonceSeq}, key ${nonceKeys[index]} is at ${sequence}; one nonceSeq cannot select both`,
+      )
   const chainId = BigInt(account.client.chain.id)
-  const validationData = await account.getValidationData({ calls, chainId, nonce })
+  const validationData = await account.getValidationData({
+    calls,
+    chainId,
+    nonceKeys,
+    nonceSeq,
+  })
 
   return {
     chainId,
-    nonce,
+    nonceKeys,
+    nonceSeq,
     sender: account.address,
     frames: [
       {

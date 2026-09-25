@@ -60,8 +60,14 @@ describe('validateFrameTx', () => {
     expect(() => validateFrameTx(tx)).toThrow(/reserved/)
   })
 
-  test('rejects nonce at 2**64 - 1', () => {
-    expect(() => validateFrameTx({ ...GOLDEN_TX, nonce: 2n ** 64n - 1n })).toThrow(/nonce/)
+  test('rejects nonceSeq at 2**64 - 1', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceSeq: 2n ** 64n - 1n })).toThrow(
+      /nonceSeq must be below/,
+    )
+  })
+
+  test('accepts nonceSeq at 2**64 - 2', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceSeq: 2n ** 64n - 2n })).not.toThrow()
   })
 
   test('rejects more than 64 frames', () => {
@@ -157,7 +163,8 @@ describe('validateFrameTx: single-byte and 32-byte wire fields', () => {
 
 /**
  * ethrex's `FrameTransaction` decodes each numeric field at a fixed width —
- * `chain_id` and `nonce` as u64; all three fees and `Frame::value` as U256.
+ * `chain_id` and `nonce_seq` as u64; the nonce keys, all three fees and
+ * `Frame::value` as U256.
  * `static_left_pad` returns `InvalidLength`
  * for anything wider. A wider value encodes to well-formed RLP here and then
  * cannot be decoded by the node at all, so it has to be caught on this side.
@@ -275,5 +282,60 @@ describe('validateFrameTx: malformed hex fields throw FrameEncodeError', () => {
     }
     expect(() => validateFrameTx(tx)).toThrow(FrameEncodeError)
     expect(() => validateFrameTx(tx)).toThrow(/blob hash 0/)
+  })
+})
+
+/** EIP-8250 keyed-nonce rules, from `validate_static_constraints` at ethrex `bdfc5d8`. */
+describe('validateFrameTx: nonce keys', () => {
+  test('accepts the account nonce alone', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [0n] })).not.toThrow()
+  })
+
+  test('accepts strictly increasing non-zero keys', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [1n, 5n, 2n ** 256n - 1n] })).not.toThrow()
+  })
+
+  test('accepts sixteen keys', () => {
+    const nonceKeys = Array.from({ length: 16 }, (_, i) => BigInt(i + 1))
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys })).not.toThrow()
+  })
+
+  test('rejects an empty key list', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [] })).toThrow(/between 1 and 16/)
+  })
+
+  test('rejects seventeen keys', () => {
+    const nonceKeys = Array.from({ length: 17 }, (_, i) => BigInt(i + 1))
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys })).toThrow(/between 1 and 16/)
+  })
+
+  test('rejects a repeated key', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [3n, 3n] })).toThrow(
+      /strictly increasing/,
+    )
+  })
+
+  test('rejects decreasing keys', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [4n, 3n] })).toThrow(
+      /strictly increasing/,
+    )
+  })
+
+  test('rejects key 0 alongside another key', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [0n, 1n] })).toThrow(
+      /key 0 is only valid as the sole nonce key/,
+    )
+  })
+
+  test('rejects a key wider than 256 bits', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [2n ** 256n] })).toThrow(
+      /nonceKeys\[0\] must fit in 256 bits/,
+    )
+  })
+
+  test('checks the nonce before the frame count, as ethrex does', () => {
+    expect(() => validateFrameTx({ ...GOLDEN_TX, nonceKeys: [], frames: [] })).toThrow(
+      /nonceKeys/,
+    )
   })
 })

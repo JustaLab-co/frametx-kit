@@ -1,3 +1,4 @@
+import { concatHex, toRlp } from 'viem'
 import { describe, expect, test } from 'vitest'
 import { decodeFrameTx, encodeFrameTx } from '../src/envelope.js'
 import { FrameDecodeError } from '../src/errors.js'
@@ -22,6 +23,24 @@ describe('decodeFrameTx', () => {
 
   test('rejects a body with the wrong field count', () => {
     expect(() => decodeFrameTx('0x06c20180')).toThrow(FrameDecodeError)
+  })
+
+  test('rejects the retired seven-field scalar-nonce envelope', () => {
+    // The chain-81410 layout: `nonce` a scalar where `nonceKeys` belongs, and one
+    // field short. ethrex refuses it at `nonce_keys`; so does this decoder.
+    const sevenField = concatHex([
+      '0x06',
+      toRlp(['0x01', '0x07', GOLDEN_TX.sender, [], [], ['0x', '0x', '0x'], []]),
+    ])
+    expect(() => decodeFrameTx(sevenField)).toThrow(/8 fields, got 7/)
+  })
+
+  test('rejects nonceKeys encoded as a scalar', () => {
+    const scalarKeys = GOLDEN_RLP.replace('01c18007', '018007').replace(
+      '0x06f8b2',
+      '0x06f8b1',
+    ) as `0x${string}`
+    expect(() => decodeFrameTx(scalarKeys)).toThrow(/nonceKeys must be an RLP list/)
   })
 })
 
@@ -55,22 +74,22 @@ describe('decodeFrameTx: FrameDecodeError.offset', () => {
   })
 
   test('a non-canonical scalar points at the offending byte', () => {
-    // nonce 7 written long-form as `81 07`: chainId is at byte 3, so the bad
-    // `81` byte sits at offset 4.
-    const longFormNonce = GOLDEN_RLP.replace('0107', '018107').replace(
+    // nonceSeq 7 written long-form as `81 07`: chainId is byte 3 and the
+    // one-key list `c1 80` bytes 4-5, so the bad `81` byte sits at offset 6.
+    const longFormNonce = GOLDEN_RLP.replace('01c18007', '01c1808107').replace(
+      '0x06f8b2',
       '0x06f8b3',
-      '0x06f8b4',
     ) as `0x${string}`
-    expect(offsetOf(longFormNonce)).toBe(4)
+    expect(offsetOf(longFormNonce)).toBe(6)
   })
 
   test('a non-minimal scalar field points at the field', () => {
-    // nonce 7 written as the two-byte string `82 00 07`.
-    const leadingZero = GOLDEN_RLP.replace('0107', '01820007').replace(
-      '0x06f8b3',
-      '0x06f8b5',
+    // nonceSeq 7 written as the two-byte string `82 00 07`.
+    const leadingZero = GOLDEN_RLP.replace('01c18007', '01c180820007').replace(
+      '0x06f8b2',
+      '0x06f8b4',
     ) as `0x${string}`
-    expect(offsetOf(leadingZero)).toBe(4)
+    expect(offsetOf(leadingZero)).toBe(6)
   })
 })
 
@@ -95,15 +114,15 @@ describe('decodeFrameTx: malformed bodies stay typed', () => {
 })
 
 describe('decodeFrameTx: non-canonical RLP', () => {
-  // `nonce` is 7, canonically the single byte 0x07. Written long-form as
+  // `nonceSeq` is 7, canonically the single byte 0x07. Written long-form as
   // 0x81 0x07 it is one byte longer, so the outer list header grows from
-  // 0xf8 0xb3 to 0xf8 0xb4. viem's `fromRlp` would accept the long form and
+  // 0xf8 0xb2 to 0xf8 0xb3. viem's `fromRlp` would accept the long form and
   // return 7; ethrex's decoder rejects it ("the 0x81 0x01 form is now
   // rejected"), and so does `walkRlp` — decoding it here would otherwise hand
   // back a transaction whose bytes the chain will not take.
-  const LONG_FORM_NONCE = GOLDEN_RLP.replace('0107', '018107').replace(
+  const LONG_FORM_NONCE = GOLDEN_RLP.replace('01c18007', '01c1808107').replace(
+    '0x06f8b2',
     '0x06f8b3',
-    '0x06f8b4',
   )
 
   test('the mutation is a real one', () => {
@@ -121,14 +140,14 @@ describe('decodeFrameTx: non-canonical RLP', () => {
   })
 
   test('rejects a non-minimal scalar (leading zero byte) as a decode error', () => {
-    // nonce 7 written as the two-byte string 0x00 0x07: `82 00 07` replaces
+    // nonceSeq 7 written as the two-byte string 0x00 0x07: `82 00 07` replaces
     // `07`, and the outer list grows by two. `walkRlp` returns the bytes
     // verbatim (a 2-byte string is well-formed RLP), `parseRlpUint` rejects the
     // leading zero, and the caller must see that as a FrameDecodeError like
     // every other malformed-body case, not the internal FrameRlpError.
-    const leadingZero = GOLDEN_RLP.replace('0107', '01820007').replace(
-      '0x06f8b3',
-      '0x06f8b5',
+    const leadingZero = GOLDEN_RLP.replace('01c18007', '01c180820007').replace(
+      '0x06f8b2',
+      '0x06f8b4',
     ) as `0x${string}`
     expect(leadingZero.length).toBe(GOLDEN_RLP.length + 4)
     expect(() => decodeFrameTx(leadingZero)).toThrow(FrameDecodeError)

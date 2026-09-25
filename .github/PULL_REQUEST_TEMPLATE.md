@@ -16,7 +16,7 @@ Which oracle covers this change, and why it could actually fail:
 - [ ] A live receipt (recovered signer, `maxCost`, or the `gasUsed` decomposition)
 - [ ] N/A, this change has no wire-format or gas behaviour
 
-<!-- A test that asserts the code's own output against itself does not count. See CONTRIBUTING.md, "Verification". -->
+<!-- A test that asserts the code's own output against itself does not count. See CONTRIBUTING.md, "Tests". -->
 
 ## Load-bearing rules
 

@@ -12,13 +12,10 @@ import {
 } from 'viem'
 import { signFrameTx } from '../signatures.js'
 import { FrameEncodeError } from '../errors.js'
+import { getFrameNonceSeq } from '../nonce.js'
 import type { FrameTransaction } from '../types.js'
 import { toFrameAccount } from './toFrameAccount.js'
-import type {
-  FrameAccount,
-  FrameAccountImplementation,
-  GetFrameNonceParameters,
-} from './types.js'
+import type { FrameAccount, FrameAccountImplementation } from './types.js'
 
 export type EoaFrameOwner = Account & {
   address: Address
@@ -51,25 +48,6 @@ export type ToEoaFrameAccountReturnType<
   extend extends object = object,
 > = FrameAccount<EoaFrameAccountImplementation<chain, owner, extend>>
 
-async function getEoaFrameNonce<
-  chain extends Chain | undefined,
-  owner extends EoaFrameOwner,
->(
-  client: Client<
-    Transport,
-    chain,
-    JsonRpcAccount | LocalAccount | undefined
-  >,
-  sender: Address,
-  parameters: GetFrameNonceParameters,
-): Promise<bigint> {
-  const nonce = await client.request({
-    method: 'eth_getTransactionCount',
-    params: [sender, parameters.blockTag ?? 'pending'],
-  })
-  return BigInt(nonce)
-}
-
 /** Create a direct-execution frame account backed by an ordinary EOA. */
 export async function toEoaFrameAccount<
   chain extends Chain | undefined,
@@ -89,7 +67,7 @@ export async function toEoaFrameAccount<
       return owner.address
     },
     async getNonce(nonceParameters = {}) {
-      return getEoaFrameNonce(client, owner.address, nonceParameters)
+      return getFrameNonceSeq(client, { address: owner.address, ...nonceParameters })
     },
     async getValidationData() {
       return '0x'
