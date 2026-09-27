@@ -9,7 +9,11 @@ import type {
   LocalAccount,
   Transport,
 } from 'viem'
-import type { FrameTransaction } from '../types.js'
+import type {
+  FrameLimits,
+  FrameSignature,
+  FrameTransaction,
+} from '../types.js'
 
 export type FrameCall = {
   to: Address
@@ -28,10 +32,42 @@ export type GetValidationDataParameters = {
   chainId: bigint
   nonceKeys: readonly bigint[]
   nonceSeq: bigint
+  paymaster?: FramePaymasterParameters | undefined
 }
 
 export type DirectFrameExecution = {
   type: 'direct'
+}
+
+export type FramePayerAccountImplementation<
+  owner extends Account | undefined = Account | undefined,
+  extend extends object = object,
+> = {
+  /** Account or signer that controls the payer. */
+  owner: owner
+  /** Add implementation-specific properties to the resolved payer account. */
+  extend?: extend | undefined
+  /** Resolve the address that calls `APPROVE(0x1)` and pays for the transaction. */
+  getAddress: () => Promise<Address>
+  /** Produce calldata for the payer's EIP-8141 `pay` VERIFY frame. */
+  getPayData: (transaction: FrameTransaction) => Promise<Hex>
+  /** Describe the payer-owned outer signature entries before anything signs. */
+  getSignatureEntries: (
+    transaction: FrameTransaction,
+  ) => Promise<readonly FrameSignature[]>
+  /** Populate the payer-owned signature entries in a prepared transaction. */
+  signFrameTransaction: (
+    transaction: FrameTransaction,
+  ) => Promise<FrameTransaction>
+}
+
+/** Parameters used to construct an EIP-8141 `pay` validation frame. */
+export type FramePaymasterParameters<
+  implementation extends
+    FramePayerAccountImplementation = FramePayerAccountImplementation,
+> = {
+  account: FramePayerAccount<implementation>
+  limits: FrameLimits
 }
 
 /** Account-specific behavior required to construct and sign frame transactions. */
@@ -58,6 +94,10 @@ export type FrameAccountImplementation<
   getNonce: (parameters?: GetFrameNonceParameters) => Promise<bigint>
   /** Produce calldata for the account's EIP-8141 validation frame. */
   getValidationData: (parameters: GetValidationDataParameters) => Promise<Hex>
+  /** Describe the sender-owned outer signature entries before anything signs. */
+  getSignatureEntries: (
+    transaction: FrameTransaction,
+  ) => Promise<readonly FrameSignature[]>
   /** Apply the account's signature scheme and ordering to a frame transaction. */
   signFrameTransaction: (
     transaction: FrameTransaction,
@@ -89,6 +129,29 @@ export type FrameAccount<
         address: Address
         /** Discriminator for frame-account-aware APIs. */
         type: 'frame'
+      }
+    >
+  >
+>
+
+type PayerAccountExtension<
+  implementation extends FramePayerAccountImplementation,
+> = NonNullable<implementation['extend']>
+
+/** A resolved account that authorizes and funds an EIP-8141 `pay` frame. */
+export type FramePayerAccount<
+  implementation extends
+    FramePayerAccountImplementation = FramePayerAccountImplementation,
+> = Simplify<
+  Assign<
+    PayerAccountExtension<implementation>,
+    Assign<
+      Omit<implementation, 'extend'>,
+      {
+        /** Resolved payer address. */
+        address: Address
+        /** Discriminator for frame-payer-aware APIs. */
+        type: 'framePayer'
       }
     >
   >

@@ -147,6 +147,52 @@ export type FrameSigner = {
   sign?: ((parameters: { hash: Hex }) => Promise<Hex>) | undefined
 }
 
+function resolveFrameSigner(signer: Hex | FrameSigner): FrameSigner {
+  return typeof signer === 'string' ? privateKeyToAccount(signer) : signer
+}
+
+/** Sign one empty-message SECP256K1 entry without requiring other entries to be complete. */
+export async function signFrameSignature(
+  tx: FrameTransaction,
+  index: number,
+  signer: Hex | FrameSigner,
+): Promise<FrameTransaction> {
+  const account = resolveFrameSigner(signer)
+  if (typeof account.sign !== 'function')
+    throw new FrameEncodeError(
+      `account ${account.address} cannot sign a raw 32-byte digest: it has no ` +
+        '`sign` method. A JSON-RPC account cannot sign one at all, and ' +
+        '`signMessage` is not a substitute — it EIP-191-prefixes its argument.',
+    )
+
+  const entry = tx.signatures[index]
+  if (entry === undefined)
+    throw new FrameEncodeError(`no signature at index ${index}`)
+  if (entry.scheme !== 1 || entry.msg !== '0x')
+    throw new FrameEncodeError(
+      `signature ${index}: slot signing requires SECP256K1 with an empty msg`,
+    )
+
+  const resolvedSigner = entry.signer ?? tx.sender
+  if (!sameAddress(resolvedSigner, account.address))
+    throw new FrameEncodeError(
+      `signature ${index}: resolved signer ${resolvedSigner} does not match ` +
+        `the signing account ${account.address}`,
+    )
+
+  const flat = await account.sign({ hash: frameTxSigHash(tx) })
+  const r = sliceHex(flat, 0, 32)
+  const s = sliceHex(flat, 32, 64)
+  const v = bareRecoveryId(BigInt(sliceHex(flat, 64, 65)), index)
+  const signature = `0x${v.toString(16).padStart(2, '0')}${r.slice(2)}${s.slice(2)}` as Hex
+  const signedEntry = { ...entry, signature }
+  assertCanonicalSignature(signedEntry, index)
+
+  const signatures = [...tx.signatures]
+  signatures[index] = signedEntry
+  return { ...tx, signatures }
+}
+
 /**
  * Sign every empty-`msg` SECP256K1 entry over the transaction's sig-hash.
  *
@@ -160,7 +206,7 @@ export async function signFrameTx(
   tx: FrameTransaction,
   signer: Hex | FrameSigner,
 ): Promise<FrameTransaction> {
-  const account = typeof signer === 'string' ? privateKeyToAccount(signer) : signer
+  const account = resolveFrameSigner(signer)
   if (typeof account.sign !== 'function')
     throw new FrameEncodeError(
       `account ${account.address} cannot sign a raw 32-byte digest: it has no ` +

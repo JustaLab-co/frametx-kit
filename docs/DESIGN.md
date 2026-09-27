@@ -13,8 +13,9 @@ commit of [`lambdaclass/ethrex`](https://github.com/lambdaclass/ethrex/tree/bdfc
 
 A TypeScript client for frame transactions: build, validate, encode, decode, hash, sign,
 price, simulate, broadcast, and read them back with their frame receipts. It ships a small
-account abstraction (`toFrameAccount`, `toEoaFrameAccount`), `prepareFrameTransaction`,
-and a viem extension (`client.extend(frameActions)`). It is not a fork of viem core.
+account abstraction (`toFrameAccount`, `toEoaFrameAccount`, `toFramePayerAccount`,
+`toEoaFramePayerAccount`), `prepareFrameTransaction`, and a viem extension
+(`client.extend(frameActions)`). It is not a fork of viem core.
 
 Not supported:
 
@@ -138,19 +139,40 @@ from a sender that does not exist yet. These are budgeting figures for choosing
 
 A `FrameAccountImplementation` supplies `getAddress()`, `getNonce({ key?, blockTag? })` (the
 current sequence of one nonce key), `getValidationData({ calls, chainId, nonceKeys,
-nonceSeq })`, `signFrameTransaction(tx)` and an execution strategy; `toFrameAccount`
-resolves it into a `FrameAccount`.
+nonceSeq })`, `getSignatureEntries(tx)`, `signFrameTransaction(tx)` and an execution
+strategy; `toFrameAccount` resolves it into a `FrameAccount`.
 
 `toEoaFrameAccount` targets a code-less EOA through the protocol's default code: key `0`
 from `eth_getTransactionCount`, other keys from `NONCE_MANAGER` via `eth_getStorageAt`, empty
 validation data, and one empty-`msg`, empty-`signer` SECP256K1 entry.
 
-`prepareFrameTransaction(account, calls, limits, { nonceKeys?, blockTag? })` builds one
-VERIFY frame with scope `0x3` followed by one SENDER frame per call, reads fees from the node
-(`2 * baseFee + priorityFee`, or `eth_gasPrice` without a base fee), and defaults to
-`nonceKeys: [0n]` at `blockTag: 'pending'`. Selected keys must currently sit at the same
-sequence, since one `nonceSeq` is matched against all of them. The caller supplies every
-frame's limits.
+A `FramePayerAccountImplementation` supplies `getAddress()`, `getPayData(tx)`,
+`getSignatureEntries(tx)` and `signFrameTransaction(tx)`; `toFramePayerAccount` resolves
+it into a `FramePayerAccount`. `toEoaFramePayerAccount` implements the protocol's codeless
+EOA payer path: empty PAY calldata and an empty-`msg` SECP256K1 entry at index `1` whose
+explicit signer is the payer. The explicit address is required because an empty signer
+resolves to `tx.sender`.
+
+`prepareFrameTransaction(account, calls, limits, { nonceKeys?, blockTag?, paymaster? })`
+builds one SENDER frame per call and reads fees from the node (`2 * baseFee + priorityFee`,
+or `eth_gasPrice` without a base fee). Without `paymaster`, the validation prefix is one
+`self_verify` frame with scope `0x3`. With `{ account: payer, limits }`, the prefix becomes
+`only_verify` with scope `0x2`, followed by a `pay` frame targeting `payer.address` with
+scope `0x1`; the payer supplies its calldata and signature metadata. Preparation installs
+all sender and payer signature entries before signing because those entries are part of the
+transaction signature hash. `signFrameTransaction(account, tx, { payer })` then lets each
+account populate only its own entries and performs final strict validation. Preparation
+defaults to `nonceKeys: [0n]` at `blockTag: 'pending'`. Selected keys must currently sit at
+the same sequence, since one `nonceSeq` is matched against all of them. The caller supplies
+every frame's limits.
+
+`sendFrameTransaction(account, calls, options)` is the high-level composition of
+preparation, sender/payer signing, strict encoding and `eth_sendRawTransaction`. A call's
+`value` and `data` default to `0n` and `0x`; nonce keys, block tag and fees inherit the
+preparation defaults. `options.limits` is mandatory and contains the validation limits plus
+one entry per call. When a payer is present, `options.paymaster.limits` is mandatory too.
+The library does not invent these budgets because the RPC cannot currently estimate the
+execution and state dimensions separately.
 
 ## 6. RPC surface
 
@@ -207,11 +229,11 @@ as a backstop. Strict decode is `decodeFrameTx(raw)` followed by `assertValidFra
 | `rlp` | Minimal scalars, `walkRlp` | `errors` |
 | `envelope` | `encodeFrameTx`, `decodeFrameTx`, `validateFrameTx` | `rlp`, `errors`, `types` |
 | `sighash` | `frameTxSigHash` | `envelope` |
-| `signatures` | Canonicality, recovery, signer resolution, `signFrameTx`, `assertValidFrameTx` | `sighash`, `envelope` |
+| `signatures` | Canonicality, recovery, signer resolution, slot and transaction signing, strict validation | `sighash`, `envelope` |
 | `gas` | `frameTxGas`, `frameTxMaxCost`, `nonceCalldata` | `rlp`, `types` |
 | `nonce` | `NONCE_MANAGER`, `keyedNonceSlot`, `getFrameNonceSeq` | `errors` |
 | `rpc` | Transaction and receipt parsing, simulate, broadcast | `errors`, `types` |
-| `accounts`, `prepareFrameTransaction`, `signFrameTransaction` | Frame accounts and transaction preparation | `envelope`, `signatures`, `nonce` |
+| `accounts`, `prepareFrameTransaction`, `signFrameTransaction`, `sendFrameTransaction` | Frame accounts and transaction construction | `envelope`, `signatures`, `nonce`, `rpc` |
 | `viem` | `frameActions`, no wire logic of its own | `envelope`, `signatures`, `rpc`, `gas` |
 
 Nothing imports upward. `gas` does not import `envelope`, so the gas model stays

@@ -1,7 +1,12 @@
 import type { BlockTag, Chain, Hex } from 'viem'
 import { MAX_FRAMES, assertNonceKeys } from './envelope.js'
 import { FrameEncodeError } from './errors.js'
-import type { FrameAccount, FrameAccountImplementation, FrameCall } from './accounts/types.js'
+import type {
+  FrameAccount,
+  FrameAccountImplementation,
+  FrameCall,
+  FramePaymasterParameters,
+} from './accounts/types.js'
 import type { FrameLimits, FrameTransaction } from './types.js'
 
 export type PrepareFrameLimits = {
@@ -22,6 +27,8 @@ export type PrepareFrameTransactionOptions = {
    * key `0` only on its own.
    */
   nonceKeys?: readonly bigint[] | undefined
+  /** Optional payer represented by an EIP-8141 `pay` VERIFY frame. */
+  paymaster?: FramePaymasterParameters | undefined
 }
 
 type RpcBlock = {
@@ -69,9 +76,11 @@ async function getFees(
 /**
  * Build an unsigned direct-execution frame transaction.
  *
- * The returned transaction contains one leading VERIFY frame followed by one
- * SENDER frame per call. Pass it to `account.signFrameTransaction` to produce
- * the transaction that can be validated and encoded.
+ * Without a paymaster, the returned transaction contains one `self_verify`
+ * frame followed by one SENDER frame per call. With a paymaster, it contains
+ * `only_verify`, `pay`, then the SENDER frames. Pass it to
+ * `signFrameTransaction`, including the payer when present, to populate the
+ * prepared signature entries.
  */
 export async function prepareFrameTransaction<
   implementation extends FrameAccountImplementation<Chain>,
@@ -81,11 +90,13 @@ export async function prepareFrameTransaction<
   frameLimits: PrepareFrameLimits,
   options: PrepareFrameTransactionOptions = {},
 ): Promise<FrameTransaction> {
+  const { paymaster } = options
+  const validationFrameCount = paymaster === undefined ? 1 : 2
   if (calls.length === 0)
     throw new FrameEncodeError('prepareFrameTransaction requires at least one call')
-  if (calls.length + 1 > MAX_FRAMES)
+  if (calls.length + validationFrameCount > MAX_FRAMES)
     throw new FrameEncodeError(
-      `prepareFrameTransaction supports at most ${MAX_FRAMES - 1} calls because the validation frame also counts toward the ${MAX_FRAMES}-frame limit`,
+      `prepareFrameTransaction supports at most ${MAX_FRAMES - validationFrameCount} calls with ${validationFrameCount} validation frame${validationFrameCount === 1 ? '' : 's'}`,
     )
   if (frameLimits.calls.length !== calls.length)
     throw new FrameEncodeError(
@@ -93,6 +104,7 @@ export async function prepareFrameTransaction<
     )
 
   assertLimits(frameLimits.validation, 'frameLimits.validation')
+  if (paymaster !== undefined) assertLimits(paymaster.limits, 'paymaster.limits')
   for (const [index, limits] of frameLimits.calls.entries())
     assertLimits(limits, `frameLimits.calls[${index}]`)
 
@@ -115,9 +127,10 @@ export async function prepareFrameTransaction<
     chainId,
     nonceKeys,
     nonceSeq,
+    ...(paymaster === undefined ? {} : { paymaster }),
   })
 
-  return {
+  const transaction: FrameTransaction = {
     chainId,
     nonceKeys,
     nonceSeq,
@@ -125,12 +138,24 @@ export async function prepareFrameTransaction<
     frames: [
       {
         mode: 1,
-        flags: 0x3,
+        flags: paymaster === undefined ? 0x3 : 0x2,
         target: null,
         limits: frameLimits.validation,
         value: 0n,
         data: validationData,
       },
+      ...(paymaster === undefined
+        ? []
+        : [
+            {
+              mode: 1 as const,
+              flags: 0x1,
+              target: paymaster.account.address,
+              limits: paymaster.limits,
+              value: 0n,
+              data: '0x' as const,
+            },
+          ]),
       ...calls.map((call, index) => ({
         mode: 2 as const,
         flags: 0,
@@ -145,4 +170,21 @@ export async function prepareFrameTransaction<
     maxFeePerBlobGas: 0n,
     blobVersionedHashes: [],
   }
+
+  if (paymaster !== undefined) {
+    const payFrame = transaction.frames[1]!
+    transaction.frames[1] = {
+      ...payFrame,
+      data: await paymaster.account.getPayData(transaction),
+    }
+  }
+
+  const senderEntries = await account.getSignatureEntries(transaction)
+  transaction.signatures = [...senderEntries]
+  if (paymaster !== undefined) {
+    const payerEntries = await paymaster.account.getSignatureEntries(transaction)
+    transaction.signatures.push(...payerEntries)
+  }
+
+  return transaction
 }

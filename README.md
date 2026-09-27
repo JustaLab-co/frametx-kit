@@ -35,6 +35,39 @@ const tx = await client.getFrameTransaction({ hash })
 const receipt = await client.getFrameTransactionReceipt({ hash })
 ```
 
+For the common build-sign-send path, use the standalone high-level action. `value`, `data`,
+nonce selection, and fee reads have defaults. Frame limits are mandatory because the RPC
+cannot currently estimate execution and state gas separately:
+
+```ts
+import { sendFrameTransaction } from '@jaw.id/frametx-kit'
+
+const hash = await sendFrameTransaction(account, [
+  { to: recipient, value: 1n },
+], {
+  limits: {
+    validation: { execution: 30_000n, state: 0n },
+    calls: [{ execution: 40_000n, state: 200_000n }],
+  },
+})
+```
+
+There must be one call-limit entry per call. A payer account is prepared and signed
+automatically when supplied, and its limits are also mandatory:
+
+```ts
+const hash = await sendFrameTransaction(account, calls, {
+  limits: {
+    validation: { execution: 25_000n, state: 0n },
+    calls: [{ execution: 150_000n, state: 250_000n }],
+  },
+  paymaster: {
+    account: payer,
+    limits: { execution: 25_000n, state: 200_000n },
+  },
+})
+```
+
 Building a transaction? Call `assertValidFrameTx(tx)` before `encodeFrameTx(tx)`. The
 encoder itself does not validate, because `sig_hash` is defined over a re-encoding and a
 validating encoder would reject the live chain data this library is meant to survey.
@@ -71,8 +104,8 @@ cannot sign a raw digest at all — both are refused with an error rather than p
 transaction the chain silently rejects.
 
 P256 and ARBITRARY entries are left untouched; build those signatures yourself and let
-`assertValidFrameTx` check them. `signFrameTx` also handles one signer at a time, so a
-transaction with entries for two different signers needs the bytes assembled by hand.
+`assertValidFrameTx` check them. The low-level `signFrameTx` handles one signer at a time;
+`signFrameTransaction` coordinates a sender and an optional `FramePayerAccount`.
 
 Sending walks the strict path for you — `assertValidFrameTx`, `encodeFrameTx`,
 `eth_sendRawTransaction` — and checks that the hash the node returns is `keccak256` of the
@@ -89,6 +122,31 @@ payment, and the payer must hold the transaction's `maxCost`, or the frame rever
 code-less EOA gets that from the protocol's default code, which `toEoaFrameAccount` targets;
 anything else needs its own validating contract. Dry-run with
 `client.simulateFrameTransaction({ raw })` before spending.
+
+To use a separate codeless EOA payer, resolve it from a raw-digest-capable account and pass
+it through preparation and signing:
+
+```ts
+const payer = await toEoaFramePayerAccount({
+  owner: privateKeyToAccount(payerPrivateKey),
+})
+
+const transaction = await prepareFrameTransaction(account, calls, limits, {
+  paymaster: {
+    account: payer,
+    limits: { execution: 60_000n, state: 200_000n },
+  },
+})
+
+const signed = await signFrameTransaction(account, transaction, { payer })
+```
+
+This changes the validation prefix from `self_verify` to `only_verify -> pay`. The
+sender signs outer signature index `0`; the EOA payer signs the protocol-reserved payment
+signature at index `1`. Both entries are installed during preparation, before either
+signature is produced, so both signatures commit to the same transaction hash. Custom
+contract payers can be defined with `toFramePayerAccount` to provide their PAY calldata,
+signature entries, and signing behavior.
 
 ## Nonces are keyed
 
