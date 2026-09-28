@@ -26,7 +26,6 @@ import {
   hegotaTestnet,
   sendFrameTransaction,
   toEoaFrameAccount,
-  toEoaFramePayerAccount,
 } from '../src/index.js'
 import { frameActions } from '../src/viem.js'
 
@@ -46,7 +45,6 @@ function privateKeyFromEnv(name: string): Hex {
 async function main(): Promise<void> {
   const rpcUrl = process.env.RPC_URL ?? hegotaTestnet.rpcUrls.default.http[0]
   const owner = privateKeyToAccount(privateKeyFromEnv('PRIVATE_KEY'))
-  const payer = privateKeyToAccount(privateKeyFromEnv('PAYMASTER_PRIVATE_KEY'))
   const recipient: Address = getAddress(requiredEnv('RECIPIENT'))
   const amount = parseEther(process.env.AMOUNT_ETH ?? '0.001')
   const client = createPublicClient({
@@ -66,10 +64,6 @@ async function main(): Promise<void> {
       limits: {
         validation: { execution: 30_000n, state: 0n },
         calls: [{ execution: 30_000n, state: 200_000n }],
-      },
-      paymaster: {
-        account: await toEoaFramePayerAccount({ owner: payer }),
-        limits: { execution: 30_000n, state: 200_000n },
       },
     },
   )
