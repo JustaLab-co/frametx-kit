@@ -4,6 +4,8 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { mainnet } from 'viem/chains'
 import { toFrameAccount } from '../src/accounts/toFrameAccount.js'
 import { toEoaFrameAccount } from '../src/accounts/toEoaFrameAccount.js'
+import { toEoaFramePayerAccount } from '../src/accounts/toEoaFramePayerAccount.js'
+import { toFramePayerAccount } from '../src/accounts/toFramePayerAccount.js'
 import { recoverFrameSigner } from '../src/signatures.js'
 import type { FrameTransaction } from '../src/types.js'
 import { GOLDEN_TX } from './fixtures/golden.js'
@@ -27,6 +29,7 @@ describe('toFrameAccount', () => {
       async getAddress() { return address },
       async getNonce() { return 1n },
       async getValidationData({ nonceSeq }) { return nonceSeq === 1n ? '0xabcd' : '0x' },
+      async getSignatureEntries() { return [] },
       async signFrameTransaction(transaction) { return transaction },
     })
 
@@ -55,11 +58,101 @@ describe('toFrameAccount', () => {
       getAddress: async () => owner.address,
       getNonce: async () => 0n,
       getValidationData: async () => '0x',
+      getSignatureEntries: async () => [],
       signFrameTransaction: async (transaction) => transaction,
     })
 
     expect(account.address).toBe(owner.address)
     expect(account.type).toBe('frame')
+  })
+})
+
+describe('toEoaFramePayerAccount', () => {
+  test('uses default-code payment approval and signs index 1 as the payer', async () => {
+    const sender = privateKeyToAccount(OWNER_KEY)
+    const payerOwner = privateKeyToAccount(`0x${'22'.repeat(32)}`)
+    const payer = await toEoaFramePayerAccount({ owner: payerOwner })
+    const transaction = {
+      ...GOLDEN_TX,
+      sender: sender.address,
+      frames: [
+        {
+          ...GOLDEN_TX.frames[0]!,
+          flags: 0x1,
+          target: payerOwner.address,
+        },
+        ...GOLDEN_TX.frames.slice(1),
+      ],
+      signatures: [
+        { scheme: 1 as const, signer: null, msg: '0x' as const, signature: '0x' as const },
+      ],
+    }
+
+    expect(payer.address).toBe(payerOwner.address)
+    expect(payer.type).toBe('framePayer')
+    expect(await payer.getPayData(transaction)).toBe('0x')
+
+    const entries = await payer.getSignatureEntries(transaction)
+    expect(entries).toEqual([
+      { scheme: 1, signer: payerOwner.address, msg: '0x', signature: '0x' },
+    ])
+
+    const signed = await payer.signFrameTransaction({
+      ...transaction,
+      signatures: [...transaction.signatures, ...entries],
+    })
+    expect(await recoverFrameSigner(signed, 1)).toBe(payerOwner.address)
+  })
+
+  test('requires its signature metadata at protocol-reserved index 1', async () => {
+    const payer = await toEoaFramePayerAccount({
+      owner: privateKeyToAccount(`0x${'22'.repeat(32)}`),
+    })
+
+    await expect(
+      payer.getSignatureEntries({
+        ...GOLDEN_TX,
+        frames: [
+          {
+            ...GOLDEN_TX.frames[0]!,
+            flags: 0x1,
+            target: payer.address,
+          },
+          ...GOLDEN_TX.frames.slice(1),
+        ],
+        signatures: [],
+      }),
+    ).rejects.toThrow(/inserted at index 1/)
+  })
+
+  test('refuses to sign without a pay frame targeting the payer', async () => {
+    const payer = await toEoaFramePayerAccount({
+      owner: privateKeyToAccount(`0x${'22'.repeat(32)}`),
+    })
+
+    await expect(
+      payer.signFrameTransaction({ ...GOLDEN_TX, signatures: [] }),
+    ).rejects.toThrow(/no payment-only VERIFY frame/)
+  })
+})
+
+describe('toFramePayerAccount', () => {
+  test('resolves methods and extensions', async () => {
+    const owner = privateKeyToAccount(OWNER_KEY)
+    const address = getAddress('0x0000000000000000000000000000000000009999')
+    const payer = await toFramePayerAccount({
+      owner,
+      extend: { implementationName: 'test-payer' as const },
+      getAddress: async () => address,
+      getPayData: async (_transaction: FrameTransaction) => '0xabcd',
+      getSignatureEntries: async () => [],
+      signFrameTransaction: async (transaction) => transaction,
+    })
+
+    expect(payer.address).toBe(address)
+    expect(payer.type).toBe('framePayer')
+    expect(payer.implementationName).toBe('test-payer')
+    expect(await payer.getPayData(GOLDEN_TX)).toBe('0xabcd')
   })
 })
 

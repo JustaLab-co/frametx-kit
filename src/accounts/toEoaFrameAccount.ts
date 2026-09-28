@@ -10,7 +10,7 @@ import {
   type Transport,
   isAddressEqual,
 } from 'viem'
-import { signFrameTx } from '../signatures.js'
+import { signFrameSignature } from '../signatures.js'
 import { FrameEncodeError } from '../errors.js'
 import { getFrameNonceSeq } from '../nonce.js'
 import type { FrameTransaction } from '../types.js'
@@ -72,26 +72,38 @@ export async function toEoaFrameAccount<
     async getValidationData() {
       return '0x'
     },
+    async getSignatureEntries() {
+      return [
+        {
+          scheme: 1,
+          signer: null,
+          msg: '0x',
+          signature: '0x',
+        },
+      ]
+    },
     async signFrameTransaction(transaction: FrameTransaction) {
       if (!isAddressEqual(transaction.sender, owner.address))
         throw new FrameEncodeError(
           `transaction sender ${transaction.sender} does not match EOA ${owner.address}`,
         )
 
-      return signFrameTx(
-        {
-          ...transaction,
-          signatures: [
-            {
-              scheme: 1,
-              signer: null,
-              msg: '0x',
-              signature: '0x',
-            },
-          ],
-        },
-        owner,
-      )
+      const prepared =
+        transaction.signatures.length === 0
+          ? {
+              ...transaction,
+              signatures: [
+                {
+                  scheme: 1 as const,
+                  signer: null,
+                  msg: '0x' as const,
+                  signature: '0x' as const,
+                },
+              ],
+            }
+          : transaction
+
+      return signFrameSignature(prepared, 0, owner)
     },
   })
 }

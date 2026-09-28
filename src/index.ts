@@ -6,9 +6,24 @@ export {
   type FrameAccount,
   type FrameAccountImplementation,
   type FrameCall,
+  type FramePaymasterParameters,
+  type FramePayerAccount,
+  type FramePayerAccountImplementation,
   type GetFrameNonceParameters,
   type GetValidationDataParameters,
 } from './accounts/types.js'
+export {
+  type ToFramePayerAccountParameters,
+  type ToFramePayerAccountReturnType,
+  toFramePayerAccount,
+} from './accounts/toFramePayerAccount.js'
+export {
+  type EoaFramePayerAccountImplementation,
+  type EoaFramePayerOwner,
+  type ToEoaFramePayerAccountParameters,
+  type ToEoaFramePayerAccountReturnType,
+  toEoaFramePayerAccount,
+} from './accounts/toEoaFramePayerAccount.js'
 export {
   type ToFrameAccountParameters,
   type ToFrameAccountReturnType,
@@ -32,7 +47,16 @@ export {
   type PrepareFrameTransactionOptions,
   prepareFrameTransaction,
 } from './prepareFrameTransaction.js'
-export { signFrameTransaction } from './signFrameTransaction.js'
+export {
+  type SignFrameTransactionOptions,
+  signFrameTransaction,
+} from './signFrameTransaction.js'
+export {
+  type SendFrameCall,
+  type SendFrameTransactionLimits,
+  type SendFrameTransactionOptions,
+  sendFrameTransaction,
+} from './sendFrameTransaction.js'
 export { rlpUint, parseRlpUint, byteLength } from './rlp.js'
 export {
   encodeFrameTx,
@@ -53,6 +77,7 @@ export {
   assertValidFrameTx,
   recoverFrameSigner,
   resolveSigner,
+  signFrameSignature,
   signFrameTx,
 } from './signatures.js'
 export {
