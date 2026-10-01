@@ -23,6 +23,7 @@ jobs:
   release:
     needs: ci
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
       issues: write
