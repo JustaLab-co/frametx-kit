@@ -103,9 +103,42 @@ argument, so the signature recovers to nothing. A `JsonRpcAccount` (a browser wa
 cannot sign a raw digest at all — both are refused with an error rather than producing a
 transaction the chain silently rejects.
 
-P256 and ARBITRARY entries are left untouched; build those signatures yourself and let
-`assertValidFrameTx` check them. The low-level `signFrameTx` handles one signer at a time;
-`signFrameTransaction` coordinates a sender and an optional `FramePayerAccount`.
+ARBITRARY entries are left untouched; build those signatures yourself and let
+`assertValidFrameTx` check them. The low-level `signFrameTx` handles one secp256k1 signer
+at a time; `signFrameTransaction` coordinates a sender and an optional
+`FramePayerAccount`.
+
+For an EIP-7702 delegated account authorized by P-256, create a signer from its raw
+32-byte private scalar and resolve the delegated EOA separately. P-256 signatures are
+made directly over the frame sig-hash, normalized to low `s`, checked locally, and encoded
+as `r || s || qx || qy`.
+
+```ts
+import {
+  privateKeyToP256FrameSigner,
+  toP256FrameAccount,
+} from '@jaw.id/frametx-kit'
+
+const signer = privateKeyToP256FrameSigner(p256PrivateKey)
+const account = await toP256FrameAccount({
+  client,
+  address: delegatedEoa,
+  signer,
+})
+```
+
+To exercise a PEM-backed delegated account end to end against the Ethrex testnet:
+
+```bash
+RPC_URL=https://rpc1.privacy.ethrex.xyz \
+SENDER=0x... \
+RECIPIENT=0x... \
+P256_PRIVATE_KEY_PATH=/absolute/path/to/p256-private.pem \
+bun run scripts/send-eth-p256.ts
+```
+
+The script checks that the PEM-derived identity equals the delegated account's on-chain
+`p256Signer()`, then sends through the high-level `sendFrameTransaction` action.
 
 Sending walks the strict path for you — `assertValidFrameTx`, `encodeFrameTx`,
 `eth_sendRawTransaction` — and checks that the hash the node returns is `keccak256` of the

@@ -26,7 +26,7 @@ Not supported:
   blob-carrying transaction must be broadcast in the EIP-7594 wrapper, which the library
   does not produce.
 - **UTXO frames** (mode 5, EIP-8312), inert on this chain.
-- **P256 and ARBITRARY signing.** Both are validated, neither is produced by `signFrameTx`.
+- **ARBITRARY signing.** It is validated but not produced by this library.
 
 ## 2. The envelope
 
@@ -145,6 +145,12 @@ strategy; `toFrameAccount` resolves it into a `FrameAccount`.
 `toEoaFrameAccount` targets a code-less EOA through the protocol's default code: key `0`
 from `eth_getTransactionCount`, other keys from `NONCE_MANAGER` via `eth_getStorageAt`, empty
 validation data, and one empty-`msg`, empty-`signer` SECP256K1 entry.
+
+`toP256FrameAccount` targets an EIP-7702 delegated EOA whose validation code authorizes a
+P-256 signer. It emits one empty-`msg` P256 entry with the explicit signer identity
+`last20Bytes(keccak256(qx || qy))` at index `0`. Its signer signs the already-computed
+frame sig-hash directly, without applying SHA-256 a second time, normalizes `s` low, and
+encodes `r || s || qx || qy`.
 
 A `FramePayerAccountImplementation` supplies `getAddress()`, `getPayData(tx)`,
 `getSignatureEntries(tx)` and `signFrameTransaction(tx)`; `toFramePayerAccount` resolves

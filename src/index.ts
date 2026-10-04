@@ -37,6 +37,12 @@ export {
   toEoaFrameAccount,
 } from './accounts/toEoaFrameAccount.js'
 export {
+  type P256FrameAccountImplementation,
+  type ToP256FrameAccountParameters,
+  type ToP256FrameAccountReturnType,
+  toP256FrameAccount,
+} from './accounts/toP256FrameAccount.js'
+export {
   type GetFrameNonceSeqParameters,
   NONCE_MANAGER,
   getFrameNonceSeq,
@@ -69,6 +75,13 @@ export {
   EXPIRY_VERIFIER,
 } from './envelope.js'
 export { frameTxSigHash } from './sighash.js'
+export {
+  type P256FrameSigner,
+  type P256PublicKey,
+  p256SignerIdentity,
+  privateKeyToP256FrameSigner,
+  signP256FrameSignature,
+} from './p256.js'
 export {
   SECP256K1_N,
   SECP256R1_N,
