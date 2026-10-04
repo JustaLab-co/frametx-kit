@@ -1,3 +1,10 @@
+# [0.4.0](https://github.com/JustaLab-co/frametx-kit/compare/v0.3.0...v0.4.0) (2026-09-28)
+
+
+### Features
+
+* **accounts:** add payer accounts and high-level transaction sending ([#29](https://github.com/JustaLab-co/frametx-kit/issues/29)) ([ea108a5](https://github.com/JustaLab-co/frametx-kit/commit/ea108a558e63bf4c526249f8cbb3f7786f3c3866)), closes [hi#level](https://github.com/hi/issues/level) [hi#level](https://github.com/hi/issues/level)
+
 # [0.3.0](https://github.com/JustaLab-co/frametx-kit/compare/v0.2.0...v0.3.0) (2026-09-24)
 
 

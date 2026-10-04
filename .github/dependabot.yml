@@ -13,6 +13,16 @@ updates:
       dev-dependencies:
         dependency-type: development
         update-types: [minor, patch]
+    ignore:
+      # Tracks the oldest Node release in `engines`, not the newest Node release.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # Major versions need a manual migration: TypeScript 7 breaks the
+      # compiler-API tooling, and vitest majors need a matching vite.
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      - dependency-name: vitest
+        update-types: ['version-update:semver-major']
     commit-message:
       prefix: 'chore(deps)'
 
@@ -22,5 +32,9 @@ updates:
       interval: monthly
     cooldown:
       default-days: 7
+    groups:
+      # init and analyze fail when their versions differ, so bump them together.
+      codeql:
+        patterns: ['github/codeql-action*']
     commit-message:
       prefix: 'ci(deps)'
