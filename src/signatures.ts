@@ -1,7 +1,22 @@
-import { type Address, type Hex, recoverAddress, sliceHex } from 'viem'
+import {
+  type Account,
+  type Address,
+  type Hex,
+  concatHex,
+  numberToHex,
+  recoverAddress,
+  size,
+  sliceHex,
+} from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
+import * as P256 from 'ox/P256'
+import type { FrameAccountOwner } from './accounts/types.js'
 import { sameAddress, validateFrameTx } from './envelope.js'
 import { FrameEncodeError, FrameRlpError } from './errors.js'
+import {
+  type P256FrameSigner,
+  p256SignerIdentity,
+} from './p256.js'
 import { byteLength } from './rlp.js'
 import { frameTxSigHash } from './sighash.js'
 import type { FrameSignature, FrameTransaction } from './types.js'
@@ -130,62 +145,146 @@ function bareRecoveryId(v: bigint, index: number): bigint {
   )
 }
 
-/**
- * Anything that can sign a raw 32-byte digest for a known address: viem's
- * `privateKeyToAccount` and `mnemonicToAccount`, a `toAccount` source, or a
- * hand-rolled wrapper around a hardware wallet, an HSM or a remote signer.
- *
- * `sign` is optional because it is optional on viem's own `LocalAccount` — a
- * `toAccount` source need not provide it — so requiring it here would reject
- * every `LocalAccount` at the type level. `signFrameTx` checks for it instead.
- *
- * `signMessage` is deliberately not an accepted substitute: it prefixes its
- * argument per EIP-191, so it cannot produce a signature over a sig-hash.
- */
-export type FrameSigner = {
-  address: Address
-  sign?: ((parameters: { hash: Hex }) => Promise<Hex>) | undefined
-}
-
-function resolveFrameSigner(signer: Hex | FrameSigner): FrameSigner {
+function resolveFrameSigner(signer: Hex | FrameAccountOwner): FrameAccountOwner {
   return typeof signer === 'string' ? privateKeyToAccount(signer) : signer
 }
 
-/** Sign one empty-message SECP256K1 entry without requiring other entries to be complete. */
-export async function signFrameSignature(
+function signerScheme(signer: FrameAccountOwner): 1 | 2 {
+  return signer.type === 'p256' ? 2 : 1
+}
+
+function schemeName(scheme: number): string {
+  if (scheme === 1) return 'SECP256K1'
+  if (scheme === 2) return 'P256'
+  return 'ARBITRARY'
+}
+
+function assertSignerMatches(
   tx: FrameTransaction,
   index: number,
-  signer: Hex | FrameSigner,
-): Promise<FrameTransaction> {
-  const account = resolveFrameSigner(signer)
-  if (typeof account.sign !== 'function')
+  signer: FrameAccountOwner,
+): void {
+  const resolvedSigner = resolveSigner(tx, index)
+  if (!sameAddress(resolvedSigner, signer.address))
     throw new FrameEncodeError(
-      `account ${account.address} cannot sign a raw 32-byte digest: it has no ` +
+      `signature ${index}: resolved signer ${resolvedSigner} does not match ` +
+        `the signing account ${signer.address}`,
+    )
+}
+
+async function signSecp256k1Entry(
+  tx: FrameTransaction,
+  index: number,
+  signer: Account,
+  digest: Hex,
+): Promise<FrameSignature> {
+  if (typeof signer.sign !== 'function')
+    throw new FrameEncodeError(
+      `account ${signer.address} cannot sign a raw 32-byte digest: it has no ` +
         '`sign` method. A JSON-RPC account cannot sign one at all, and ' +
         '`signMessage` is not a substitute — it EIP-191-prefixes its argument.',
     )
 
-  const entry = tx.signatures[index]
-  if (entry === undefined)
-    throw new FrameEncodeError(`no signature at index ${index}`)
-  if (entry.scheme !== 1 || entry.msg !== '0x')
-    throw new FrameEncodeError(
-      `signature ${index}: slot signing requires SECP256K1 with an empty msg`,
-    )
-
-  const resolvedSigner = entry.signer ?? tx.sender
-  if (!sameAddress(resolvedSigner, account.address))
-    throw new FrameEncodeError(
-      `signature ${index}: resolved signer ${resolvedSigner} does not match ` +
-        `the signing account ${account.address}`,
-    )
-
-  const flat = await account.sign({ hash: frameTxSigHash(tx) })
+  assertSignerMatches(tx, index, signer)
+  const entry = tx.signatures[index]!
+  const flat = await signer.sign({ hash: digest })
   const r = sliceHex(flat, 0, 32)
   const s = sliceHex(flat, 32, 64)
   const v = bareRecoveryId(BigInt(sliceHex(flat, 64, 65)), index)
   const signature = `0x${v.toString(16).padStart(2, '0')}${r.slice(2)}${s.slice(2)}` as Hex
-  const signedEntry = { ...entry, signature }
+  return { ...entry, signature }
+}
+
+async function signP256Entry(
+  tx: FrameTransaction,
+  index: number,
+  signer: P256FrameSigner,
+  digest: Hex,
+): Promise<FrameSignature> {
+  const derivedIdentity = p256SignerIdentity(signer.publicKey)
+  if (!sameAddress(derivedIdentity, signer.address))
+    throw new FrameEncodeError(
+      `P-256 signer address ${signer.address} does not match public key identity ${derivedIdentity}`,
+    )
+
+  assertSignerMatches(tx, index, signer)
+  const entry = tx.signatures[index]!
+  const compactSignature = await signer.sign({ hash: digest })
+  if (size(compactSignature) !== 64)
+    throw new FrameEncodeError(
+      `signature ${index}: P-256 signer must return exactly 64 bytes (r || s)`,
+    )
+  const r = BigInt(sliceHex(compactSignature, 0, 32))
+  const returnedS = BigInt(sliceHex(compactSignature, 32, 64))
+  if (r <= 0n || r >= SECP256R1_N)
+    throw new FrameEncodeError(`signature ${index}: signer returned r outside (0, n)`)
+  if (returnedS <= 0n || returnedS >= SECP256R1_N)
+    throw new FrameEncodeError(`signature ${index}: signer returned s outside (0, n)`)
+
+  const s = returnedS > SECP256R1_N / 2n ? SECP256R1_N - returnedS : returnedS
+  const publicKey = {
+    prefix: 4 as const,
+    x: BigInt(sliceHex(signer.publicKey, 1, 33)),
+    y: BigInt(sliceHex(signer.publicKey, 33, 65)),
+  }
+  if (!P256.verify({ payload: digest, publicKey, signature: { r, s } }))
+    throw new FrameEncodeError(
+      `signature ${index}: signer returned a signature that does not verify against its public key`,
+    )
+
+  return {
+    ...entry,
+    signature: concatHex([
+      numberToHex(r, { size: 32 }),
+      numberToHex(s, { size: 32 }),
+      sliceHex(signer.publicKey, 1),
+    ]),
+  }
+}
+
+async function signFrameEntry(
+  tx: FrameTransaction,
+  index: number,
+  signer: FrameAccountOwner,
+  digest: Hex,
+): Promise<FrameSignature> {
+  const entry = tx.signatures[index]
+  if (entry === undefined)
+    throw new FrameEncodeError(`no signature at index ${index}`)
+  if (entry.msg !== '0x' || entry.scheme === 0)
+    throw new FrameEncodeError(
+      `signature ${index}: slot signing requires SECP256K1 or P256 with an empty msg`,
+    )
+
+  const ownerScheme = signerScheme(signer)
+  if (entry.scheme !== ownerScheme)
+    throw new FrameEncodeError(
+      `signature ${index}: ${schemeName(entry.scheme)} entry cannot be signed by ` +
+        `a ${schemeName(ownerScheme)} owner`,
+    )
+
+  return ownerScheme === 2
+    ? signP256Entry(tx, index, signer as P256FrameSigner, digest)
+    : signSecp256k1Entry(tx, index, signer as Account, digest)
+}
+
+/** Sign one empty-message SECP256K1 or P256 entry. */
+export async function signFrameSignature(
+  tx: FrameTransaction,
+  index: number,
+  signer: Hex | FrameAccountOwner,
+): Promise<FrameTransaction> {
+  const account = resolveFrameSigner(signer)
+
+  const entry = tx.signatures[index]
+  if (entry === undefined)
+    throw new FrameEncodeError(`no signature at index ${index}`)
+  const signedEntry = await signFrameEntry(
+    tx,
+    index,
+    account,
+    frameTxSigHash(tx),
+  )
   assertCanonicalSignature(signedEntry, index)
 
   const signatures = [...tx.signatures]
@@ -194,50 +293,26 @@ export async function signFrameSignature(
 }
 
 /**
- * Sign every empty-`msg` SECP256K1 entry over the transaction's sig-hash.
+ * Sign every empty-`msg` SECP256K1 or P256 entry over the transaction's sig-hash.
  *
- * Takes either a raw private key or a `FrameSigner` — a hardware wallet, a
- * KMS, an HD account, anything that signs a digest for a known address.
+ * Takes either a raw private key or a `FrameAccountOwner`. A secp256k1 owner
+ * must be a viem `Account`; a P-256 owner is created by
+ * `privateKeyToP256Account` or implements the same interface.
  *
  * Idempotent: the sig-hash elides empty-`msg` signature bytes, so re-signing an
  * already-signed transaction produces the same bytes.
  */
 export async function signFrameTx(
   tx: FrameTransaction,
-  signer: Hex | FrameSigner,
+  signer: Hex | FrameAccountOwner,
 ): Promise<FrameTransaction> {
   const account = resolveFrameSigner(signer)
-  if (typeof account.sign !== 'function')
-    throw new FrameEncodeError(
-      `account ${account.address} cannot sign a raw 32-byte digest: it has no ` +
-        `\`sign\` method. A JSON-RPC account cannot sign one at all, and ` +
-        `\`signMessage\` is not a substitute — it EIP-191-prefixes its argument.`,
-    )
-  const sign = account.sign
   const digest = frameTxSigHash(tx)
 
   const signatures = await Promise.all(
     tx.signatures.map(async (sig, i) => {
-      if (sig.scheme !== 1 || sig.msg !== '0x') return sig
-
-      // An entry names its own signer (or, if empty, resolves to tx.sender). Signing
-      // it with this key when that resolved signer is some OTHER address would
-      // produce a signature that recovers to the wrong address — a transaction the
-      // chain rejects at consensus, with no error from this library unless we check.
-      const resolvedSigner = sig.signer ?? tx.sender
-      if (!sameAddress(resolvedSigner, account.address))
-        throw new FrameEncodeError(
-          `signature ${i}: resolved signer ${resolvedSigner} does not match ` +
-            `the signing account ${account.address}`,
-        )
-
-      const flat = await sign({ hash: digest })
-      // viem returns r||s||v with v in {27,28}; the frame layout is v||r||s with a bare id.
-      const r = sliceHex(flat, 0, 32)
-      const s = sliceHex(flat, 32, 64)
-      const v = bareRecoveryId(BigInt(sliceHex(flat, 64, 65)), i)
-      const signature = `0x${v.toString(16).padStart(2, '0')}${r.slice(2)}${s.slice(2)}` as Hex
-      return { ...sig, signature }
+      if (sig.scheme === 0 || sig.msg !== '0x') return sig
+      return signFrameEntry(tx, i, account, digest)
     }),
   )
 

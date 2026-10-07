@@ -14,6 +14,9 @@ import type {
   FrameSignature,
   FrameTransaction,
 } from '../types.js'
+import type { P256FrameSigner } from '../p256.js'
+
+export type FrameAccountOwner = Account | P256FrameSigner
 
 export type FrameCall = {
   to: Address
@@ -40,7 +43,7 @@ export type DirectFrameExecution = {
 }
 
 export type FramePayerAccountImplementation<
-  owner extends Account | undefined = Account | undefined,
+  owner extends FrameAccountOwner | undefined = FrameAccountOwner | undefined,
   extend extends object = object,
 > = {
   /** Account or signer that controls the payer. */
@@ -73,7 +76,7 @@ export type FramePaymasterParameters<
 /** Account-specific behavior required to construct and sign frame transactions. */
 export type FrameAccountImplementation<
   chain extends Chain | undefined = Chain | undefined,
-  owner extends Account | undefined = Account | undefined,
+  owner extends FrameAccountOwner | undefined = FrameAccountOwner | undefined,
   extend extends object = object,
 > = {
   /** Client used to read account and nonce state. */

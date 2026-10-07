@@ -5,6 +5,7 @@ export {
   type DirectFrameExecution,
   type FrameAccount,
   type FrameAccountImplementation,
+  type FrameAccountOwner,
   type FrameCall,
   type FramePaymasterParameters,
   type FramePayerAccount,
@@ -77,15 +78,12 @@ export {
 export { frameTxSigHash } from './sighash.js'
 export {
   type P256FrameSigner,
-  type P256PublicKey,
   p256SignerIdentity,
-  privateKeyToP256FrameSigner,
-  signP256FrameSignature,
+  privateKeyToP256Account,
 } from './p256.js'
 export {
   SECP256K1_N,
   SECP256R1_N,
-  type FrameSigner,
   assertCanonicalSignature,
   assertValidFrameTx,
   recoverFrameSigner,

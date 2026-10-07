@@ -9,47 +9,49 @@ import {
 } from 'viem'
 import { FrameEncodeError } from '../errors.js'
 import { getFrameNonceSeq } from '../nonce.js'
-import {
-  type P256FrameSigner,
-  signP256FrameSignature,
-} from '../p256.js'
+import type { P256FrameSigner } from '../p256.js'
+import { signFrameSignature } from '../signatures.js'
 import type { FrameTransaction } from '../types.js'
 import { toFrameAccount } from './toFrameAccount.js'
 import type { FrameAccount, FrameAccountImplementation } from './types.js'
 
 export type P256FrameAccountImplementation<
   chain extends Chain | undefined = Chain | undefined,
+  owner extends P256FrameSigner = P256FrameSigner,
   extend extends object = object,
-> = FrameAccountImplementation<chain, undefined, extend>
+> = FrameAccountImplementation<chain, owner, extend>
 
 export type ToP256FrameAccountParameters<
   chain extends Chain | undefined = Chain | undefined,
+  owner extends P256FrameSigner = P256FrameSigner,
   extend extends object = object,
 > = {
   client: Client<Transport, chain, JsonRpcAccount | LocalAccount | undefined>
   /** EIP-7702 delegated EOA represented by this frame account. */
   address: Address
-  signer: P256FrameSigner
+  owner: owner
   extend?: extend | undefined
 }
 
 export type ToP256FrameAccountReturnType<
   chain extends Chain | undefined = Chain | undefined,
+  owner extends P256FrameSigner = P256FrameSigner,
   extend extends object = object,
-> = FrameAccount<P256FrameAccountImplementation<chain, extend>>
+> = FrameAccount<P256FrameAccountImplementation<chain, owner, extend>>
 
 /** Create a direct-execution frame account authorized by a P-256 signer. */
 export async function toP256FrameAccount<
   chain extends Chain | undefined,
+  owner extends P256FrameSigner,
   extend extends object = object,
 >(
-  parameters: ToP256FrameAccountParameters<chain, extend>,
-): Promise<ToP256FrameAccountReturnType<chain, extend>> {
-  const { address, client, signer } = parameters
+  parameters: ToP256FrameAccountParameters<chain, owner, extend>,
+): Promise<ToP256FrameAccountReturnType<chain, owner, extend>> {
+  const { address, client, owner } = parameters
 
   return toFrameAccount({
     client,
-    owner: undefined,
+    owner,
     execution: { type: 'direct' },
     ...(parameters.extend === undefined ? {} : { extend: parameters.extend }),
     async getAddress() {
@@ -65,7 +67,7 @@ export async function toP256FrameAccount<
       return [
         {
           scheme: 2,
-          signer: signer.address,
+          signer: owner.address,
           msg: '0x',
           signature: '0x',
         },
@@ -84,7 +86,7 @@ export async function toP256FrameAccount<
               signatures: [
                 {
                   scheme: 2 as const,
-                  signer: signer.address,
+                  signer: owner.address,
                   msg: '0x' as const,
                   signature: '0x' as const,
                 },
@@ -92,7 +94,7 @@ export async function toP256FrameAccount<
             }
           : transaction
 
-      return signP256FrameSignature(prepared, 0, signer)
+      return signFrameSignature(prepared, 0, owner)
     },
   })
 }

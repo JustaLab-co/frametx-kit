@@ -29,7 +29,7 @@ import {
 import {
   hegotaTestnet,
   parseRpcFrameReceipt,
-  privateKeyToP256FrameSigner,
+  privateKeyToP256Account,
   sendFrameTransaction,
   toP256FrameAccount,
   type FrameRpcClient,
@@ -92,17 +92,17 @@ async function main(): Promise<void> {
   const sender = getAddress(requiredEnv('SENDER'))
   const recipient = getAddress(requiredEnv('RECIPIENT'))
   const amount = parseEther(process.env.AMOUNT_ETH ?? '0.000001')
-  const signer = privateKeyToP256FrameSigner(
+  const owner = privateKeyToP256Account(
     loadP256PrivateKey(requiredEnv('P256_PRIVATE_KEY_PATH')),
   )
 
   const expectedIdentity = process.env.P256_SIGNER_IDENTITY
   if (
     expectedIdentity !== undefined &&
-    !isAddressEqual(signer.address, getAddress(expectedIdentity))
+    !isAddressEqual(owner.address, getAddress(expectedIdentity))
   )
     throw new Error(
-      `PEM signer identity ${signer.address} does not match P256_SIGNER_IDENTITY ${expectedIdentity}`,
+      `PEM signer identity ${owner.address} does not match P256_SIGNER_IDENTITY ${expectedIdentity}`,
     )
 
   const client = createPublicClient({
@@ -124,12 +124,12 @@ async function main(): Promise<void> {
     functionName: 'p256Signer',
     data: signerCall.data,
   })
-  if (!isAddressEqual(configuredSigner, signer.address))
+  if (!isAddressEqual(configuredSigner, owner.address))
     throw new Error(
-      `delegated account authorizes ${configuredSigner}, but the PEM identity is ${signer.address}`,
+      `delegated account authorizes ${configuredSigner}, but the PEM identity is ${owner.address}`,
     )
 
-  const account = await toP256FrameAccount({ client, address: sender, signer })
+  const account = await toP256FrameAccount({ client, address: sender, owner })
   const [senderBalanceBefore, recipientBalanceBefore] = await Promise.all([
     client.getBalance({ address: sender }),
     client.getBalance({ address: recipient }),
@@ -138,7 +138,7 @@ async function main(): Promise<void> {
   console.log(`sender:       ${sender}`)
   console.log(`recipient:    ${recipient}`)
   console.log(`amount:       ${formatEther(amount)} ETH`)
-  console.log(`P-256 signer: ${signer.address}`)
+  console.log(`P-256 signer: ${owner.address}`)
 
   const submittedHash = await sendFrameTransaction(
     account,

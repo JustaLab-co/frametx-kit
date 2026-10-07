@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'vitest'
-import { createClient, custom, getAddress } from 'viem'
+import { createClient, custom, getAddress, size } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { mainnet } from 'viem/chains'
 import { toFrameAccount } from '../src/accounts/toFrameAccount.js'
 import { toEoaFrameAccount } from '../src/accounts/toEoaFrameAccount.js'
 import { toEoaFramePayerAccount } from '../src/accounts/toEoaFramePayerAccount.js'
 import { toFramePayerAccount } from '../src/accounts/toFramePayerAccount.js'
-import { recoverFrameSigner } from '../src/signatures.js'
+import { privateKeyToP256Account } from '../src/p256.js'
+import { recoverFrameSigner, signFrameSignature } from '../src/signatures.js'
 import type { FrameTransaction } from '../src/types.js'
 import { GOLDEN_TX } from './fixtures/golden.js'
 
@@ -153,6 +154,33 @@ describe('toFramePayerAccount', () => {
     expect(payer.type).toBe('framePayer')
     expect(payer.implementationName).toBe('test-payer')
     expect(await payer.getPayData(GOLDEN_TX)).toBe('0xabcd')
+  })
+
+  test('accepts a P-256 owner and signs a payer-owned scheme-2 entry', async () => {
+    const owner = privateKeyToP256Account(`0x${'01'.padStart(64, '0')}`)
+    const payerAddress = getAddress('0x0000000000000000000000000000000000009999')
+    const payer = await toFramePayerAccount({
+      owner,
+      getAddress: async () => payerAddress,
+      getPayData: async () => '0x',
+      getSignatureEntries: async () => [
+        { scheme: 2, signer: owner.address, msg: '0x', signature: '0x' },
+      ],
+      signFrameTransaction: async (transaction) =>
+        signFrameSignature(transaction, 1, owner),
+    })
+    const transaction = {
+      ...GOLDEN_TX,
+      signatures: [
+        GOLDEN_TX.signatures[0]!,
+        { scheme: 2 as const, signer: owner.address, msg: '0x' as const, signature: '0x' as const },
+      ],
+    }
+
+    const signed = await payer.signFrameTransaction(transaction)
+
+    expect(payer.owner).toBe(owner)
+    expect(size(signed.signatures[1]!.signature)).toBe(128)
   })
 })
 
