@@ -307,11 +307,15 @@ export async function signFrameTx(
   signer: Hex | FrameAccountOwner,
 ): Promise<FrameTransaction> {
   const account = resolveFrameSigner(signer)
+  const scheme = signerScheme(account)
   const digest = frameTxSigHash(tx)
 
   const signatures = await Promise.all(
     tx.signatures.map(async (sig, i) => {
-      if (sig.scheme === 0 || sig.msg !== '0x') return sig
+      // Entries of another scheme belong to another owner, e.g. a P-256 sender
+      // signed earlier with `signFrameSignature` while this call signs a secp256k1
+      // payer, so they are left as they are.
+      if (sig.scheme !== scheme || sig.msg !== '0x') return sig
       return signFrameEntry(tx, i, account, digest)
     }),
   )

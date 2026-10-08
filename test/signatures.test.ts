@@ -418,7 +418,7 @@ describe('signFrameTx with an account', () => {
     await expect(signFrameTx(tx, account)).rejects.toThrow(new RegExp(other, 'i'))
   })
 
-  test('rejects a P256 entry for a secp256k1 owner', async () => {
+  test('leaves a P256 entry untouched', async () => {
     const account = privateKeyToAccount(PRIVATE_KEY)
     const p256 = {
       scheme: 2 as const,
@@ -427,7 +427,52 @@ describe('signFrameTx with an account', () => {
       signature: `0x${'11'.repeat(128)}` as const,
     }
     const tx = { ...GOLDEN_TX, sender: account.address, signatures: [p256] }
-    await expect(signFrameTx(tx, account)).rejects.toThrow(
+    const signed = await signFrameTx(tx, account)
+    expect(signed.signatures[0]).toEqual(p256)
+  })
+
+  test('signs a secp256k1 payer after the P256 sender slot was signed', async () => {
+    const owner = privateKeyToP256Account(`0x${'01'.padStart(64, '0')}`)
+    const payer = privateKeyToAccount(PRIVATE_KEY)
+    const tx = {
+      ...GOLDEN_TX,
+      signatures: [
+        { scheme: 2 as const, signer: owner.address, msg: '0x' as const, signature: '0x' as const },
+        { scheme: 1 as const, signer: payer.address, msg: '0x' as const, signature: '0x' as const },
+      ],
+    }
+    const senderSigned = await signFrameSignature(tx, 0, owner)
+    const signed = await signFrameTx(senderSigned, payer)
+
+    expect(signed.signatures[0]).toEqual(senderSigned.signatures[0])
+    expect(await recoverFrameSigner(signed, 1)).toBe(payer.address)
+  })
+
+  test('signs a P256 sender after the secp256k1 payer slot was signed', async () => {
+    const owner = privateKeyToP256Account(`0x${'01'.padStart(64, '0')}`)
+    const payer = privateKeyToAccount(PRIVATE_KEY)
+    const tx = {
+      ...GOLDEN_TX,
+      signatures: [
+        { scheme: 2 as const, signer: owner.address, msg: '0x' as const, signature: '0x' as const },
+        { scheme: 1 as const, signer: payer.address, msg: '0x' as const, signature: '0x' as const },
+      ],
+    }
+    const payerSigned = await signFrameSignature(tx, 1, payer)
+    const signed = await signFrameTx(payerSigned, owner)
+
+    expect(signed.signatures[1]).toEqual(payerSigned.signatures[1])
+    expect(signed.signatures[0]!.signature).toHaveLength(2 + 128 * 2)
+  })
+
+  test('rejects a P256 slot for a secp256k1 owner', async () => {
+    const account = privateKeyToAccount(PRIVATE_KEY)
+    const tx = {
+      ...GOLDEN_TX,
+      sender: account.address,
+      signatures: [{ scheme: 2 as const, signer: null, msg: '0x' as const, signature: '0x' as const }],
+    }
+    await expect(signFrameSignature(tx, 0, account)).rejects.toThrow(
       /P256 entry cannot be signed by a SECP256K1 owner/,
     )
   })

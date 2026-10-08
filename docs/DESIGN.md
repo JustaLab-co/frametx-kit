@@ -94,9 +94,10 @@ invalidates the transaction at consensus. `signFrameTx` normalizes whatever a si
 returns into this form.
 
 **Signer resolution.** An empty `signer` resolves to `tx.sender` for SECP256K1 and P256.
-`signFrameTx` signs every empty-`msg` SECP256K1 entry whose resolved signer is the signing
-account, and refuses a signer that cannot sign a raw digest (EIP-191 `signMessage`, JSON-RPC
-accounts) rather than produce a signature that recovers to nothing.
+`signFrameTx` signs every empty-`msg` entry of the owner's scheme (SECP256K1 for a viem
+account, P256 for a P-256 owner) whose resolved signer is the owner, leaves entries of the
+other scheme as they are, and refuses a signer that cannot sign a raw digest (EIP-191
+`signMessage`, JSON-RPC accounts) rather than produce a signature that recovers to nothing.
 
 ## 4. Gas
 
