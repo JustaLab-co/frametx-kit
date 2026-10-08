@@ -5,6 +5,7 @@ export {
   type DirectFrameExecution,
   type FrameAccount,
   type FrameAccountImplementation,
+  type FrameAccountOwner,
   type FrameCall,
   type FramePaymasterParameters,
   type FramePayerAccount,
@@ -36,6 +37,12 @@ export {
   type ToEoaFrameAccountReturnType,
   toEoaFrameAccount,
 } from './accounts/toEoaFrameAccount.js'
+export {
+  type P256FrameAccountImplementation,
+  type ToP256FrameAccountParameters,
+  type ToP256FrameAccountReturnType,
+  toP256FrameAccount,
+} from './accounts/toP256FrameAccount.js'
 export {
   type GetFrameNonceSeqParameters,
   NONCE_MANAGER,
@@ -70,9 +77,13 @@ export {
 } from './envelope.js'
 export { frameTxSigHash } from './sighash.js'
 export {
+  type P256FrameSigner,
+  p256SignerIdentity,
+  privateKeyToP256Account,
+} from './p256.js'
+export {
   SECP256K1_N,
   SECP256R1_N,
-  type FrameSigner,
   assertCanonicalSignature,
   assertValidFrameTx,
   recoverFrameSigner,

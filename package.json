@@ -73,6 +73,9 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "ox": "^0.14.45"
+  },
   "peerDependencies": {
     "viem": "^2.21.0"
   },

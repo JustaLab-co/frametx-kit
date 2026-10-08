@@ -80,22 +80,23 @@ assertValidFrameTx(signed)
 const raw = encodeFrameTx(signed)
 ```
 
-`signFrameTx` also takes a `FrameSigner` instead of a key — anything with an `address` and a
-raw-digest `sign`, which covers viem's `privateKeyToAccount` and `mnemonicToAccount`, a
-`toAccount` source, and your own wrapper around a hardware wallet, an HSM or a remote
-signer. It signs every SECP256K1 entry whose `msg` is empty, and refuses if the entry's
-resolved signer is not that account's address.
+`signFrameTx` also takes a `FrameAccountOwner` instead of a key. This includes viem's
+`privateKeyToAccount` and `mnemonicToAccount`, a `toAccount` source, the tagged owner from
+`privateKeyToP256Account`, and viem accounts backed by hardware wallets, HSMs or remote signers.
+It signs every ECDSA entry whose `msg` is empty and refuses if either the signature scheme
+or resolved signer does not match the supplied owner.
 
 ```ts
-import { privateKeyToAccount } from 'viem/accounts'
+import { privateKeyToAccount, toAccount } from 'viem/accounts'
 
 const signed = await signFrameTx(tx, privateKeyToAccount(privateKey))
 
-// a remote signer needs nothing else:
-const signed = await signFrameTx(tx, {
+// Wrap a remote signer as a viem Account:
+const remoteAccount = toAccount({
   address: '0x…',
   sign: ({ hash }) => myKms.signDigest(hash), // r||s||v, v as 27/28 or a bare 0/1
 })
+const signed = await signFrameTx(tx, remoteAccount)
 ```
 
 A raw-digest `sign` is required. `signMessage` will not do: it EIP-191-prefixes its
@@ -103,9 +104,48 @@ argument, so the signature recovers to nothing. A `JsonRpcAccount` (a browser wa
 cannot sign a raw digest at all — both are refused with an error rather than producing a
 transaction the chain silently rejects.
 
-P256 and ARBITRARY entries are left untouched; build those signatures yourself and let
-`assertValidFrameTx` check them. The low-level `signFrameTx` handles one signer at a time;
-`signFrameTransaction` coordinates a sender and an optional `FramePayerAccount`.
+The same restriction applies to P-256 signers. WebCrypto's ECDSA API hashes its input
+internally, so passing the frame sig-hash to it signs `SHA-256(frameSigHash)`, not the
+frame sig-hash itself. Passkeys/WebAuthn sign authenticator data and client data rather
+than an arbitrary 32-byte digest. Use a P-256 backend that explicitly supports raw or
+prehashed ECDSA digests; `privateKeyToP256Account` does so for a local private scalar.
+
+ARBITRARY entries are left untouched; build those signatures yourself and let
+`assertValidFrameTx` check them. The low-level `signFrameTx` handles one owner and
+signature scheme at a time; `signFrameTransaction` coordinates a sender and an optional
+`FramePayerAccount`.
+
+For an EIP-7702 delegated account authorized by P-256, create a signer from its raw
+32-byte private scalar and resolve the delegated EOA separately. P-256 signatures are
+made directly over the frame sig-hash, normalized to low `s`, checked locally, and encoded
+as `r || s || qx || qy`.
+
+```ts
+import {
+  privateKeyToP256Account,
+  toP256FrameAccount,
+} from '@jaw.id/frametx-kit'
+
+const owner = privateKeyToP256Account(p256PrivateKey)
+const account = await toP256FrameAccount({
+  client,
+  address: delegatedEoa,
+  owner,
+})
+```
+
+To exercise a PEM-backed delegated account end to end against the Ethrex testnet:
+
+```bash
+RPC_URL=https://rpc1.privacy.ethrex.xyz \
+SENDER=0x... \
+RECIPIENT=0x... \
+P256_PRIVATE_KEY_PATH=/absolute/path/to/p256-private.pem \
+bun run scripts/send-eth-p256.ts
+```
+
+The script checks that the PEM-derived identity equals the delegated account's on-chain
+`p256Signer()`, then sends through the high-level `sendFrameTransaction` action.
 
 Sending walks the strict path for you — `assertValidFrameTx`, `encodeFrameTx`,
 `eth_sendRawTransaction` — and checks that the hash the node returns is `keccak256` of the

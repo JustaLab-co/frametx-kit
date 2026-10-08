@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import type { Address, Hex } from 'viem'
-import { privateKeyToAccount } from 'viem/accounts'
+import { privateKeyToAccount, toAccount } from 'viem/accounts'
+import { privateKeyToP256Account } from '../src/p256.js'
 import {
   SECP256K1_N,
   SECP256R1_N,
@@ -8,6 +9,7 @@ import {
   assertValidFrameTx,
   recoverFrameSigner,
   resolveSigner,
+  signFrameSignature,
   signFrameTx,
 } from '../src/signatures.js'
 import { FrameEncodeError } from '../src/errors.js'
@@ -178,6 +180,18 @@ describe('signFrameTx and recoverFrameSigner', () => {
       signatures: [{ scheme: 1 as const, signer: null, msg: '0x' as const, signature: '0x' as const }] }
     const signed = await signFrameTx(tx, PRIVATE_KEY)
     expect(() => assertCanonicalSignature(signed.signatures[0]!, 0)).not.toThrow()
+  })
+
+  test('preserves the published scheme-1 signing bytes', async () => {
+    const account = privateKeyToAccount(PRIVATE_KEY)
+    const tx = { ...GOLDEN_TX, sender: account.address,
+      signatures: [{ scheme: 1 as const, signer: null, msg: '0x' as const, signature: '0x' as const }] }
+    const signed = await signFrameTx(tx, PRIVATE_KEY)
+
+    expect(signed.signatures[0]!.signature).toBe(
+      '0x00ba2811495d0849ea73518ef0d3300622d85d4b7f80b68743b0b7d0d254df00' +
+        'ac29c77311f162c523bd114d22484b6b08f856e157832705afd925dbc244358e13',
+    )
   })
 
   test('signing is stable under the elision rule', async () => {
@@ -358,14 +372,12 @@ describe('signFrameTx with an account', () => {
     expect(viaAccount.signatures[0]!.signature).toBe(viaKey.signatures[0]!.signature)
   })
 
-  // What a KMS or hardware wrapper looks like: an address and a raw-digest signer,
-  // with none of viem's other account surface.
-  test('signs with a bare { address, sign } remote signer', async () => {
+  test('signs with a remote signer wrapped as a viem account', async () => {
     const inner = privateKeyToAccount(PRIVATE_KEY)
-    const remote = {
-      address: inner.address,
+    const remote = toAccount({
+      ...inner,
       sign: ({ hash }: { hash: Hex }) => inner.sign({ hash }),
-    }
+    })
     const signed = await signFrameTx(oneEmptyEntry(inner.address), remote)
     expect(await recoverFrameSigner(signed, 0)).toBe(inner.address)
   })
@@ -373,13 +385,13 @@ describe('signFrameTx with an account', () => {
   test('signs over the transaction sig-hash, not some other digest', async () => {
     const inner = privateKeyToAccount(PRIVATE_KEY)
     const seen: Hex[] = []
-    const remote = {
-      address: inner.address,
+    const remote = toAccount({
+      ...inner,
       sign: ({ hash }: { hash: Hex }) => {
         seen.push(hash)
         return inner.sign({ hash })
       },
-    }
+    })
     const tx = oneEmptyEntry(inner.address)
     await signFrameTx(tx, remote)
     expect(seen).toEqual([frameTxSigHash(tx)])
@@ -418,6 +430,80 @@ describe('signFrameTx with an account', () => {
     const signed = await signFrameTx(tx, account)
     expect(signed.signatures[0]).toEqual(p256)
   })
+
+  test('signs a secp256k1 payer after the P256 sender slot was signed', async () => {
+    const owner = privateKeyToP256Account(`0x${'01'.padStart(64, '0')}`)
+    const payer = privateKeyToAccount(PRIVATE_KEY)
+    const tx = {
+      ...GOLDEN_TX,
+      signatures: [
+        { scheme: 2 as const, signer: owner.address, msg: '0x' as const, signature: '0x' as const },
+        { scheme: 1 as const, signer: payer.address, msg: '0x' as const, signature: '0x' as const },
+      ],
+    }
+    const senderSigned = await signFrameSignature(tx, 0, owner)
+    const signed = await signFrameTx(senderSigned, payer)
+
+    expect(signed.signatures[0]).toEqual(senderSigned.signatures[0])
+    expect(await recoverFrameSigner(signed, 1)).toBe(payer.address)
+  })
+
+  test('signs a P256 sender after the secp256k1 payer slot was signed', async () => {
+    const owner = privateKeyToP256Account(`0x${'01'.padStart(64, '0')}`)
+    const payer = privateKeyToAccount(PRIVATE_KEY)
+    const tx = {
+      ...GOLDEN_TX,
+      signatures: [
+        { scheme: 2 as const, signer: owner.address, msg: '0x' as const, signature: '0x' as const },
+        { scheme: 1 as const, signer: payer.address, msg: '0x' as const, signature: '0x' as const },
+      ],
+    }
+    const payerSigned = await signFrameSignature(tx, 1, payer)
+    const signed = await signFrameTx(payerSigned, owner)
+
+    expect(signed.signatures[1]).toEqual(payerSigned.signatures[1])
+    expect(signed.signatures[0]!.signature).toHaveLength(2 + 128 * 2)
+  })
+
+  test('rejects a P256 slot for a secp256k1 owner', async () => {
+    const account = privateKeyToAccount(PRIVATE_KEY)
+    const tx = {
+      ...GOLDEN_TX,
+      sender: account.address,
+      signatures: [{ scheme: 2 as const, signer: null, msg: '0x' as const, signature: '0x' as const }],
+    }
+    await expect(signFrameSignature(tx, 0, account)).rejects.toThrow(
+      /P256 entry cannot be signed by a SECP256K1 owner/,
+    )
+  })
+
+  test('signs a P256 entry through the shared signFrameTx path', async () => {
+    const owner = privateKeyToP256Account(`0x${'01'.padStart(64, '0')}`)
+    const tx = {
+      ...GOLDEN_TX,
+      signatures: [
+        {
+          scheme: 2 as const,
+          signer: owner.address,
+          msg: '0x' as const,
+          signature: '0x' as const,
+        },
+      ],
+    }
+    const signed = await signFrameTx(tx, owner)
+
+    expect(signed.signatures[0]!.signature).toHaveLength(2 + 128 * 2)
+    expect(() => assertCanonicalSignature(signed.signatures[0]!, 0)).not.toThrow()
+  })
+
+  test('rejects a SECP256K1 entry for a P256 owner', async () => {
+    const owner = privateKeyToP256Account(`0x${'01'.padStart(64, '0')}`)
+    const tx = oneEmptyEntry(owner.address)
+
+    await expect(signFrameSignature(tx, 0, owner)).rejects.toThrow(
+      /SECP256K1 entry cannot be signed by a P256 owner/,
+    )
+  })
 })
 
 // Only the account path can reach these: `privateKeyToAccount` always returns
@@ -425,8 +511,12 @@ describe('signFrameTx with an account', () => {
 // recovery id. Getting this wrong writes a malformed `v` byte into a signature
 // the chain rejects at consensus, so it is checked rather than assumed.
 describe('signFrameTx recovery-id normalization', () => {
-  const signerReturning = (address: Address, vByte: string, flat: Hex) => ({
-    address,
+  const signerReturning = (
+    inner: ReturnType<typeof privateKeyToAccount>,
+    vByte: string,
+    flat: Hex,
+  ) => toAccount({
+    ...inner,
     sign: async () => `0x${flat.slice(2, 130)}${vByte}` as Hex,
   })
 
@@ -443,7 +533,7 @@ describe('signFrameTx recovery-id normalization', () => {
     const v27 = BigInt(`0x${flat.slice(130)}`)
     const bare = (v27 - 27n).toString(16).padStart(2, '0')
 
-    const viaBare = await signFrameTx(tx, signerReturning(inner.address, bare, flat))
+    const viaBare = await signFrameTx(tx, signerReturning(inner, bare, flat))
     const viaPrefixed = await signFrameTx(tx, inner)
     expect(viaBare.signatures[0]!.signature).toBe(viaPrefixed.signatures[0]!.signature)
   })
@@ -459,7 +549,7 @@ describe('signFrameTx recovery-id normalization', () => {
     }
     const flat = await inner.sign({ hash: frameTxSigHash(tx) })
     await expect(
-      signFrameTx(tx, signerReturning(inner.address, '25', flat)),
+      signFrameTx(tx, signerReturning(inner, '25', flat)),
     ).rejects.toThrow(/signer returned v=37/)
   })
 })
