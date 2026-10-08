@@ -1,3 +1,10 @@
+# [0.5.0](https://github.com/JustaLab-co/frametx-kit/compare/v0.4.0...v0.5.0) (2026-10-08)
+
+
+### Features
+
+* **accounts:** add P-256 frame accounts and signing ([#50](https://github.com/JustaLab-co/frametx-kit/issues/50)) ([c80b884](https://github.com/JustaLab-co/frametx-kit/commit/c80b88473f751048f93febd8224f01db6354c593))
+
 # [0.4.0](https://github.com/JustaLab-co/frametx-kit/compare/v0.3.0...v0.4.0) (2026-09-28)
 
 
