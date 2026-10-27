@@ -206,11 +206,11 @@ const signed = await signFrameTransaction(account, transaction, { payer })
 ```
 
 This changes the validation prefix from `self_verify` to `only_verify -> pay`. The
-sender signs outer signature index `0`; the EOA payer signs the protocol-reserved payment
-signature. Both entries are installed during preparation, before either signature is
-produced, so both signatures commit to the same transaction hash. Contract payers use the
-same `toFramePayerAccount` constructor and can override their PAY calldata, signature
-entries, and signing behavior.
+sender and EOA payer sign their respective prepared entries; the payer entry carries its
+address explicitly and is not selected by a fixed array index. Both entries are installed
+during preparation, before either signature is produced, so both signatures commit to the
+same transaction hash. Contract payers use the same `toFramePayerAccount` constructor and
+can override their PAY calldata, signature entries, and signing behavior.
 
 ## Nonces are keyed
 

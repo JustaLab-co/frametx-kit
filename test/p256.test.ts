@@ -5,6 +5,7 @@ import {
   custom,
   getAddress,
   numberToHex,
+  size,
   sliceHex,
 } from 'viem'
 import { mainnet } from 'viem/chains'
@@ -154,7 +155,12 @@ describe('toFrameAccount with a P-256 owner', () => {
     const signer = privateKeyToP256Account(PRIVATE_KEY)
     const client = createClient({
       chain: mainnet,
-      transport: custom({ async request() {} }),
+      transport: custom({
+        async request({ method }) {
+          if (method === 'eth_getCode') return `0xef0100${DELEGATE.slice(2)}`
+          throw new Error(`unexpected ${method}`)
+        },
+      }),
     })
     const account = await toFrameAccount({
       client,
@@ -189,7 +195,12 @@ describe('toFrameAccount with a P-256 owner', () => {
     const signer = privateKeyToP256Account(PRIVATE_KEY)
     const client = createClient({
       chain: mainnet,
-      transport: custom({ async request() {} }),
+      transport: custom({
+        async request({ method }) {
+          if (method === 'eth_getCode') return `0xef0100${DELEGATE.slice(2)}`
+          throw new Error(`unexpected ${method}`)
+        },
+      }),
     })
     const account = await toFrameAccount({
       client,
@@ -201,5 +212,32 @@ describe('toFrameAccount with a P-256 owner', () => {
     await expect(account.signFrameTransaction(GOLDEN_TX)).rejects.toThrow(
       FrameEncodeError,
     )
+  })
+
+  test('uses a raw-signing override for a P-256 owner', async () => {
+    const signer = privateKeyToP256Account(PRIVATE_KEY)
+    let called = false
+    const client = createClient({
+      chain: mainnet,
+      transport: custom({ async request() {} }),
+    })
+    const account = await toFrameAccount({
+      client,
+      owner: signer,
+      sign: async ({ hash }) => {
+        called = true
+        return signer.sign({ hash })
+      },
+    })
+    const signed = await account.signFrameTransaction({
+      ...GOLDEN_TX,
+      sender: signer.address,
+      signatures: [
+        { scheme: 2, signer: signer.address, msg: '0x', signature: '0x' },
+      ],
+    })
+
+    expect(called).toBe(true)
+    expect(size(signed.signatures[0]!.signature)).toBe(128)
   })
 })

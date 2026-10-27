@@ -14,15 +14,13 @@ import type {
   FramePayerAccountImplementation,
 } from './types.js'
 
-export type ToFramePayerAccountParameters<
-  owner extends FrameAccountOwner = FrameAccountOwner,
+type FramePayerAccountBaseParameters<
+  owner extends FrameAccountOwner | undefined,
   extend extends object = object,
 > = {
-  owner: owner
+  owner?: owner | undefined
   /** Payer address. Defaults to `owner.address`. */
   address?: Address | undefined
-  /** Expected EIP-7702 delegate. Omit for a non-delegated payer. */
-  delegateAddress?: Address | undefined
   /** Raw-digest signer override, primarily for injected or remote accounts. */
   sign?: RawFrameSigner | undefined
   extend?: extend | undefined
@@ -36,35 +34,93 @@ export type ToFramePayerAccountParameters<
     | undefined
 }
 
+type DefaultFramePayerAccountParameters<
+  owner extends FrameAccountOwner,
+  extend extends object,
+> = FramePayerAccountBaseParameters<owner, extend> & { owner: owner }
+
+type CustomFramePayerAccountParameters<extend extends object> =
+  FramePayerAccountBaseParameters<undefined, extend> & {
+    owner?: undefined
+    sign?: never
+    getPayData: NonNullable<FramePayerAccountImplementation<undefined, extend>['getPayData']>
+    getSignatureEntries: NonNullable<
+      FramePayerAccountImplementation<undefined, extend>['getSignatureEntries']
+    >
+    signFrameTransaction: NonNullable<
+      FramePayerAccountImplementation<undefined, extend>['signFrameTransaction']
+    >
+  } & (
+    | { address: Address; getAddress?: undefined }
+    | { address?: Address | undefined; getAddress: () => Promise<Address> }
+  )
+
+export type ToFramePayerAccountParameters<
+  owner extends FrameAccountOwner | undefined = FrameAccountOwner,
+  extend extends object = object,
+> = owner extends FrameAccountOwner
+  ? DefaultFramePayerAccountParameters<owner, extend>
+  : CustomFramePayerAccountParameters<extend>
+
 export type ToFramePayerAccountReturnType<
-  owner extends FrameAccountOwner = FrameAccountOwner,
+  owner extends FrameAccountOwner | undefined = FrameAccountOwner,
   extend extends object = object,
 > = FramePayerAccount<FramePayerAccountImplementation<owner, extend>>
 
 /** Create a payer account with overridable defaults for common payment policies. */
 export async function toFramePayerAccount<
-  owner extends FrameAccountOwner,
+  owner extends FrameAccountOwner | undefined,
   extend extends object = object,
 >(
   parameters: ToFramePayerAccountParameters<owner, extend>,
 ): Promise<ToFramePayerAccountReturnType<owner, extend>> {
   const { owner } = parameters
-  const getAddress =
-    parameters.getAddress ?? (async () => parameters.address ?? owner.address)
+  const unresolvedAddress = parameters.address ?? owner?.address
+  if (parameters.getAddress === undefined && unresolvedAddress === undefined)
+    throw new FrameEncodeError(
+      'ownerless frame payer requires address or getAddress',
+    )
+  const address = await (parameters.getAddress?.() ??
+    Promise.resolve(unresolvedAddress!))
+  const getAddress = async () => address
+
+  if (owner === undefined) {
+    if (
+      parameters.getPayData === undefined ||
+      parameters.getSignatureEntries === undefined ||
+      parameters.signFrameTransaction === undefined
+    )
+      throw new FrameEncodeError(
+        'ownerless frame payer requires getPayData, getSignatureEntries, and signFrameTransaction',
+      )
+
+    const { extend, address: _address, ...rest } = parameters
+    return {
+      ...extend,
+      ...rest,
+      owner,
+      getAddress,
+      getPayData: parameters.getPayData,
+      getSignatureEntries: parameters.getSignatureEntries,
+      signFrameTransaction: parameters.signFrameTransaction,
+      address,
+      type: 'framePayer',
+    } as unknown as ToFramePayerAccountReturnType<owner, extend>
+  }
+
   const signingOwner = ownerWithSigner(owner, parameters.sign)
 
   async function assertPayFrame(transaction: FrameTransaction): Promise<void> {
-    const payer = await getAddress()
     const hasPayFrame = transaction.frames.some(
       (frame) =>
         frame.mode === 1 &&
         frame.flags === 0x1 &&
         frame.target !== null &&
-        isAddressEqual(frame.target, payer),
+        isAddressEqual(frame.target, address),
     )
     if (!hasPayFrame)
       throw new FrameEncodeError(
-        `transaction has no payment-only VERIFY frame targeting payer ${payer}`,
+        `transaction has no payment-only VERIFY frame targeting payer ${address}`,
       )
   }
 
@@ -83,25 +139,32 @@ export async function toFramePayerAccount<
       await assertPayFrame(transaction)
 
       let prepared = transaction
-      let signatureIndex = findOwnerSignatureIndex(prepared, owner, 'last')
+      let signatureIndex = findOwnerSignatureIndex(prepared, owner, 'last', {
+        explicitSigner: true,
+      })
       if (signatureIndex === -1) {
+        if (transaction.signatures.some((entry) => entry.signature !== '0x'))
+          throw new FrameEncodeError(
+            `frame payer ${address} has no entry and other entries are already signed; install payer entries during preparation`,
+          )
         const entries = await getSignatureEntries(transaction)
         prepared = {
           ...transaction,
           signatures: [...transaction.signatures, ...entries],
         }
-        signatureIndex = findOwnerSignatureIndex(prepared, owner, 'last')
+        signatureIndex = findOwnerSignatureIndex(prepared, owner, 'last', {
+          explicitSigner: true,
+        })
       }
       if (signatureIndex === -1)
         throw new FrameEncodeError(
-          `frame payer ${await getAddress()} has no signable entry for owner ${owner.address}`,
+          `frame payer ${address} has no signable entry for owner ${owner.address}`,
         )
 
       return signFrameSignature(prepared, signatureIndex, signingOwner)
     })
 
   const { extend, sign: _sign, address: _address, ...rest } = parameters
-  const address = await getAddress()
   return {
     ...extend,
     ...rest,
@@ -112,5 +175,5 @@ export async function toFramePayerAccount<
     signFrameTransaction,
     address,
     type: 'framePayer',
-  } as ToFramePayerAccountReturnType<owner, extend>
+  } as unknown as ToFramePayerAccountReturnType<owner, extend>
 }

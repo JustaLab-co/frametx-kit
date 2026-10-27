@@ -48,8 +48,6 @@ export type FramePayerAccountImplementation<
 > = {
   /** Account or signer that controls the payer. */
   owner: owner
-  /** Expected EIP-7702 delegate, when the payer is a delegated EOA. */
-  delegateAddress?: Address | undefined
   /** Add implementation-specific properties to the resolved payer account. */
   extend?: extend | undefined
   /** Resolve the address that calls `APPROVE(0x1)` and pays for the transaction. */
