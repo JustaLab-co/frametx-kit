@@ -164,6 +164,7 @@ To exercise a PEM-backed delegated account end to end against the Ethrex testnet
 RPC_URL=https://rpc1.privacy.ethrex.xyz \
 SENDER=0x... \
 RECIPIENT=0x... \
+P256_IMPLEMENTATION_ADDRESS=0x... \
 P256_PRIVATE_KEY_PATH=/absolute/path/to/p256-private.pem \
 bun run scripts/send-eth-p256.ts
 ```

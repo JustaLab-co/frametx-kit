@@ -75,6 +75,10 @@ export async function toFramePayerAccount<
   parameters: ToFramePayerAccountParameters<owner, extend>,
 ): Promise<ToFramePayerAccountReturnType<owner, extend>> {
   const { owner } = parameters
+  if (parameters.address !== undefined && parameters.getAddress !== undefined)
+    throw new FrameEncodeError(
+      'frame payer parameters cannot include both address and getAddress',
+    )
   const unresolvedAddress = parameters.address ?? owner?.address
   if (parameters.getAddress === undefined && unresolvedAddress === undefined)
     throw new FrameEncodeError(
@@ -111,6 +115,10 @@ export async function toFramePayerAccount<
   const signingOwner = ownerWithSigner(owner, parameters.sign)
 
   async function assertPayFrame(transaction: FrameTransaction): Promise<void> {
+    if (isAddressEqual(transaction.sender, address))
+      throw new FrameEncodeError(
+        `default frame payer ${address} cannot also be the transaction sender`,
+      )
     const hasPayFrame = transaction.frames.some(
       (frame) =>
         frame.mode === 1 &&

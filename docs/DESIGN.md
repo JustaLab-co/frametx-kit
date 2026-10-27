@@ -151,10 +151,12 @@ explicit identity `last20Bytes(keccak256(qx || qy))`; its signer signs the frame
 directly, normalizes `s` low, and encodes `r || s || qx || qy`. Passing `address` separately
 represents a delegated EOA controlled by a different signer. When `delegateAddress` is
 provided, construction verifies that `eth_getCode(address)` is exactly
-`0xef0100 || delegateAddress`. Account-specific validation or signature policies
-override `getValidationData`, `getSignatureEntries`, or `signFrameTransaction` on the same
-constructor. A fully custom account may omit `owner` when it supplies an address and all
-four account-policy callbacks directly.
+`0xef0100 || delegateAddress`. A delegated sender always uses explicit signer metadata,
+even when its secp256k1 owner has the same address as the sender. `address` and
+`getAddress` are mutually exclusive. Account-specific validation or signature policies
+override `getValidationData`, `getSignatureEntries`, or `signFrameTransaction` on the
+same constructor. A fully custom account may omit `owner` when it supplies an address and
+all four account-policy callbacks directly.
 
 A plain JSON-RPC/injected account has no raw-digest signing method. The optional
 `sign({ hash })` adapter supports an injected, hardware, HSM, or remote backend only when
@@ -165,8 +167,12 @@ A `FramePayerAccountImplementation` supplies `getAddress()`, `getPayData(tx)`,
 `getSignatureEntries(tx)` and `signFrameTransaction(tx)`. `toFramePayerAccount` is the
 single payer constructor. Its defaults cover a codeless EOA payer: empty PAY calldata and
 an empty-`msg` signature entry whose explicit signer is the payer, since an empty signer
-would resolve to `tx.sender`. A contract payer with no signing owner supplies `address`
-(or `getAddress`) and all three policy callbacks directly. Delegated or contract payers
+would resolve to `tx.sender`. The default policy refuses a payer that is also `tx.sender`;
+self-paying EOAs use sender validation rather than a separate PAY frame. It otherwise
+applies no sponsorship policy: it does not cap transaction cost or restrict frame contents,
+so a sponsor must override `signFrameTransaction` to enforce those rules. A contract payer
+with no signing owner supplies `address` (or `getAddress`) and all three policy callbacks
+directly; `address` and `getAddress` are mutually exclusive. Delegated or contract payers
 override the same callbacks. Signing locates the payer-owned entry by scheme and explicit
 signer rather than assuming a fixed signature-array index.
 

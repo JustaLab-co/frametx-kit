@@ -5,6 +5,7 @@
  * Required:
  *   SENDER=0x...
  *   RECIPIENT=0x...
+ *   P256_IMPLEMENTATION_ADDRESS=0x...
  *   P256_PRIVATE_KEY_PATH=/absolute/path/to/p256-private.pem
  *
  * Optional:
@@ -91,6 +92,7 @@ async function main(): Promise<void> {
   const rpcUrl = process.env.RPC_URL ?? 'https://rpc1.privacy.ethrex.xyz'
   const sender = getAddress(requiredEnv('SENDER'))
   const recipient = getAddress(requiredEnv('RECIPIENT'))
+  const delegateAddress = getAddress(requiredEnv('P256_IMPLEMENTATION_ADDRESS'))
   const amount = parseEther(process.env.AMOUNT_ETH ?? '0.000001')
   const owner = privateKeyToP256Account(
     loadP256PrivateKey(requiredEnv('P256_PRIVATE_KEY_PATH')),
@@ -109,11 +111,6 @@ async function main(): Promise<void> {
     chain: hegotaTestnet,
     transport: http(rpcUrl),
   })
-  const code = await client.getCode({ address: sender })
-  if (code === undefined || !/^0xef0100[0-9a-fA-F]{40}$/.test(code))
-    throw new Error(`sender ${sender} does not have an EIP-7702 delegation`)
-  const delegateAddress = getAddress(`0x${code.slice(8)}`)
-
   const signerCall = await client.call({
     to: sender,
     data: encodeFunctionData({ abi: P256_ACCOUNT_ABI, functionName: 'p256Signer' }),

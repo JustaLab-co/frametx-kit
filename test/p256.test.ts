@@ -153,10 +153,13 @@ describe('signFrameSignature with a P-256 owner', () => {
 describe('toFrameAccount with a P-256 owner', () => {
   test('prepares and signs scheme-2 entry zero for a delegated EOA', async () => {
     const signer = privateKeyToP256Account(PRIVATE_KEY)
+    const requests: { method: string; params?: unknown }[] = []
     const client = createClient({
       chain: mainnet,
       transport: custom({
-        async request({ method }) {
+        async request(request) {
+          requests.push(request)
+          const { method } = request
           if (method === 'eth_getCode') return `0xef0100${DELEGATE.slice(2)}`
           throw new Error(`unexpected ${method}`)
         },
@@ -189,6 +192,30 @@ describe('toFrameAccount with a P-256 owner', () => {
         sliceHex(signer.publicKey, 1),
       ]),
     )
+    expect(requests).toEqual([
+      { method: 'eth_getCode', params: [DELEGATED_EOA, 'latest'] },
+    ])
+  })
+
+  test('keeps an explicit signer when the P-256 identity equals the sender', async () => {
+    const signer = privateKeyToP256Account(PRIVATE_KEY)
+    const client = createClient({
+      chain: mainnet,
+      transport: custom({ async request() {} }),
+    })
+    const account = await toFrameAccount({ client, owner: signer })
+
+    const signed = await account.signFrameTransaction({
+      ...GOLDEN_TX,
+      sender: signer.address,
+      signatures: [],
+    })
+
+    expect(signed.signatures[0]).toMatchObject({
+      scheme: 2,
+      signer: signer.address,
+      msg: '0x',
+    })
   })
 
   test('rejects a transaction for a different sender', async () => {

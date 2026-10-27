@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'vitest'
-import { createClient, custom, getAddress, size } from 'viem'
+import { createClient, custom, getAddress, size, sliceHex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { mainnet } from 'viem/chains'
+import * as P256 from 'ox/P256'
 import { toFrameAccount } from '../src/accounts/toFrameAccount.js'
 import { toFramePayerAccount } from '../src/accounts/toFramePayerAccount.js'
 import { privateKeyToP256Account } from '../src/p256.js'
+import { frameTxSigHash } from '../src/sighash.js'
 import { recoverFrameSigner, signFrameSignature } from '../src/signatures.js'
 import type { FrameTransaction } from '../src/types.js'
 import { GOLDEN_TX } from './fixtures/golden.js'
@@ -91,6 +93,23 @@ describe('toFrameAccount', () => {
       signatures: [],
     })
     expect(resolutions).toBe(1)
+  })
+
+  test('rejects address together with getAddress', async () => {
+    const owner = privateKeyToAccount(OWNER_KEY)
+    const client = createClient({
+      chain: mainnet,
+      transport: custom({ async request() {} }),
+    })
+
+    await expect(
+      toFrameAccount({
+        client,
+        owner,
+        address: owner.address,
+        getAddress: async () => OTHER,
+      }),
+    ).rejects.toThrow(/both address and getAddress/)
   })
 
   test('supports an ownerless account when every policy callback is supplied', async () => {
@@ -197,7 +216,7 @@ describe('toFramePayerAccount defaults', () => {
     expect(await recoverFrameSigner(senderSigned, 0)).toBe(sender.address)
   })
 
-  test('requires an explicit payer entry when sender and payer are the same address', async () => {
+  test('refuses the default payer policy when sender and payer are the same address', async () => {
     const owner = privateKeyToAccount(OWNER_KEY)
     const payer = await toFramePayerAccount({ owner })
     const transaction = {
@@ -212,17 +231,12 @@ describe('toFramePayerAccount defaults', () => {
       ],
     }
 
-    const signed = await payer.signFrameTransaction(transaction)
-
-    expect(signed.signatures[0]!.signature).toBe('0x')
-    expect(signed.signatures[1]).toMatchObject({ signer: owner.address })
-    expect(await recoverFrameSigner(signed, 1)).toBe(owner.address)
-
-    const senderSigned = await signFrameSignature(transaction, 0, owner)
-    await expect(payer.signFrameTransaction(senderSigned)).rejects.toThrow(
-      /other entries are already signed/,
+    await expect(payer.getSignatureEntries(transaction)).rejects.toThrow(
+      /cannot also be the transaction sender/,
     )
-    expect(await recoverFrameSigner(senderSigned, 0)).toBe(owner.address)
+    await expect(payer.signFrameTransaction(transaction)).rejects.toThrow(
+      /cannot also be the transaction sender/,
+    )
   })
 
   test('refuses to sign without a pay frame targeting the payer', async () => {
@@ -233,6 +247,40 @@ describe('toFramePayerAccount defaults', () => {
     await expect(
       payer.signFrameTransaction({ ...GOLDEN_TX, signatures: [] }),
     ).rejects.toThrow(/no payment-only VERIFY frame/)
+  })
+
+  test('refuses a payer-targeted VERIFY frame with non-payment approval flags', async () => {
+    const payer = await toFramePayerAccount({
+      owner: privateKeyToAccount(`0x${'22'.repeat(32)}`),
+    })
+    const transaction = {
+      ...GOLDEN_TX,
+      frames: [
+        { ...GOLDEN_TX.frames[0]!, flags: 0x3, target: payer.address },
+        ...GOLDEN_TX.frames.slice(1),
+      ],
+    }
+
+    await expect(payer.getSignatureEntries(transaction)).rejects.toThrow(
+      /no payment-only VERIFY frame/,
+    )
+  })
+
+  test('refuses a payer-targeted non-VERIFY frame', async () => {
+    const payer = await toFramePayerAccount({
+      owner: privateKeyToAccount(`0x${'22'.repeat(32)}`),
+    })
+    const transaction = {
+      ...GOLDEN_TX,
+      frames: [
+        { ...GOLDEN_TX.frames[0]!, mode: 2 as const, flags: 0x1, target: payer.address },
+        ...GOLDEN_TX.frames.slice(1),
+      ],
+    }
+
+    await expect(payer.getSignatureEntries(transaction)).rejects.toThrow(
+      /no payment-only VERIFY frame/,
+    )
   })
 
   test('signs through a raw-digest override for an injected payer account', async () => {
@@ -283,31 +331,37 @@ describe('toFramePayerAccount', () => {
     expect(await payer.getPayData(GOLDEN_TX)).toBe('0xabcd')
   })
 
-  test('accepts a P-256 owner and signs a payer-owned scheme-2 entry', async () => {
+  test('uses the default P-256 payer entry and signing policy', async () => {
     const owner = privateKeyToP256Account(`0x${'01'.padStart(64, '0')}`)
     const payerAddress = getAddress('0x0000000000000000000000000000000000009999')
-    const payer = await toFramePayerAccount({
-      owner,
-      getAddress: async () => payerAddress,
-      getPayData: async () => '0x',
-      getSignatureEntries: async () => [
-        { scheme: 2, signer: owner.address, msg: '0x', signature: '0x' },
-      ],
-      signFrameTransaction: async (transaction) =>
-        signFrameSignature(transaction, 1, owner),
-    })
+    const payer = await toFramePayerAccount({ owner, address: payerAddress })
     const transaction = {
       ...GOLDEN_TX,
-      signatures: [
-        GOLDEN_TX.signatures[0]!,
-        { scheme: 2 as const, signer: owner.address, msg: '0x' as const, signature: '0x' as const },
+      frames: [
+        { ...GOLDEN_TX.frames[0]!, flags: 0x1, target: payerAddress },
+        ...GOLDEN_TX.frames.slice(1),
       ],
+      signatures: [],
     }
 
     const signed = await payer.signFrameTransaction(transaction)
+    const entry = signed.signatures[0]!
+    const signature = {
+      r: BigInt(sliceHex(entry.signature, 0, 32)),
+      s: BigInt(sliceHex(entry.signature, 32, 64)),
+    }
+    const publicKey = {
+      prefix: 4 as const,
+      x: BigInt(sliceHex(owner.publicKey, 1, 33)),
+      y: BigInt(sliceHex(owner.publicKey, 33, 65)),
+    }
 
     expect(payer.owner).toBe(owner)
-    expect(size(signed.signatures[1]!.signature)).toBe(128)
+    expect(entry).toMatchObject({ scheme: 2, signer: owner.address, msg: '0x' })
+    expect(size(entry.signature)).toBe(128)
+    expect(
+      P256.verify({ payload: frameTxSigHash(signed), publicKey, signature }),
+    ).toBe(true)
   })
 
   test('supports an ownerless payer when every policy callback is supplied', async () => {
@@ -370,6 +424,18 @@ describe('toFramePayerAccount', () => {
     await payer.getSignatureEntries(transaction)
     await payer.signFrameTransaction(transaction)
     expect(resolutions).toBe(1)
+  })
+
+  test('rejects address together with getAddress', async () => {
+    const owner = privateKeyToAccount(OWNER_KEY)
+
+    await expect(
+      toFramePayerAccount({
+        owner,
+        address: owner.address,
+        getAddress: async () => OTHER,
+      }),
+    ).rejects.toThrow(/both address and getAddress/)
   })
 })
 
@@ -442,10 +508,13 @@ describe('toFrameAccount defaults', () => {
   test('uses explicit signer metadata for delegated and distinct-address owners', async () => {
     const owner = privateKeyToAccount(OWNER_KEY)
     const delegationCode = `0xef0100${DELEGATE.slice(2)}`
+    const requests: { method: string; params?: unknown }[] = []
     const delegatedClient = createClient({
       chain: mainnet,
       transport: custom({
-        async request({ method }) {
+        async request(request) {
+          requests.push(request)
+          const { method } = request
           if (method === 'eth_getCode') return delegationCode
           throw new Error(`unexpected ${method}`)
         },
@@ -465,6 +534,9 @@ describe('toFrameAccount defaults', () => {
 
     expect((await delegated.getSignatureEntries(GOLDEN_TX))[0]!.signer).toBe(owner.address)
     expect((await distinct.getSignatureEntries(GOLDEN_TX))[0]!.signer).toBe(owner.address)
+    expect(requests).toEqual([
+      { method: 'eth_getCode', params: [owner.address, 'latest'] },
+    ])
   })
 
   test('verifies the expected EIP-7702 delegate against account code', async () => {
@@ -477,6 +549,35 @@ describe('toFrameAccount defaults', () => {
     await expect(
       toFrameAccount({ client, owner, delegateAddress: DELEGATE }),
     ).rejects.toThrow(/expected 0xef0100/)
+  })
+
+  test('rejects code ending in the delegate without the EIP-7702 prefix', async () => {
+    const owner = privateKeyToAccount(OWNER_KEY)
+    const client = createClient({
+      chain: mainnet,
+      transport: custom({
+        async request() {
+          return `0x000000${DELEGATE.slice(2)}`
+        },
+      }),
+    })
+
+    await expect(
+      toFrameAccount({ client, owner, delegateAddress: DELEGATE }),
+    ).rejects.toThrow(/expected 0xef0100/)
+  })
+
+  test('truncates long contract code in delegate mismatch errors', async () => {
+    const owner = privateKeyToAccount(OWNER_KEY)
+    const longCode = `0x${'12'.repeat(100)}` as const
+    const client = createClient({
+      chain: mainnet,
+      transport: custom({ async request() { return longCode } }),
+    })
+
+    await expect(
+      toFrameAccount({ client, owner, delegateAddress: DELEGATE }),
+    ).rejects.toThrow(`${longCode.slice(0, 48)}...`)
   })
 
   test('reads the nonce from the resolved delegated address', async () => {

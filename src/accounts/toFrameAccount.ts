@@ -108,6 +108,10 @@ export async function toFrameAccount<
   parameters: ToFrameAccountParameters<chain, owner, extend>,
 ): Promise<ToFrameAccountReturnType<chain, owner, extend>> {
   const { client, owner } = parameters
+  if (parameters.address !== undefined && parameters.getAddress !== undefined)
+    throw new FrameEncodeError(
+      'frame account parameters cannot include both address and getAddress',
+    )
   const unresolvedAddress = parameters.address ?? owner?.address
   if (parameters.getAddress === undefined && unresolvedAddress === undefined)
     throw new FrameEncodeError(
@@ -125,7 +129,7 @@ export async function toFrameAccount<
     const expected = `0xef0100${parameters.delegateAddress.slice(2)}`.toLowerCase()
     if (code.toLowerCase() !== expected)
       throw new FrameEncodeError(
-        `frame account ${address} delegates with ${code}, expected ${expected}`,
+        `frame account ${address} delegates with ${code.length > 48 ? `${code.slice(0, 48)}...` : code}, expected ${expected}`,
       )
   }
 

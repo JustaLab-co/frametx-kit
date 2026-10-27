@@ -86,4 +86,59 @@ describe('signFrameTransaction', () => {
     expect(await recoverFrameSigner(signed, 0)).toBe(owner.address)
     expect(await recoverFrameSigner(signed, 1)).toBe(payerOwner.address)
   })
+
+  test('signs separate first and last entries when sender and payer share an owner', async () => {
+    const owner = privateKeyToAccount(OWNER_KEY)
+    const sender = getAddress('0x0000000000000000000000000000000000001234')
+    const payerAddress = getAddress('0x0000000000000000000000000000000000009999')
+    const delegate = getAddress('0x0000000000000000000000000000000000005678')
+    const client = createClient({
+      account: owner,
+      chain: mainnet,
+      transport: custom({
+        async request({ method }) {
+          if (method === 'eth_getCode') return `0xef0100${delegate.slice(2)}`
+          throw new Error(`unexpected ${method}`)
+        },
+      }),
+    })
+    const account = await toFrameAccount({
+      client,
+      owner,
+      address: sender,
+      delegateAddress: delegate,
+    })
+    const payer = await toFramePayerAccount({ owner, address: payerAddress })
+    const base = {
+      ...GOLDEN_TX,
+      sender,
+      frames: [
+        { ...GOLDEN_TX.frames[0]!, flags: 0x2, target: null },
+        {
+          ...GOLDEN_TX.frames[0]!,
+          flags: 0x1,
+          target: payerAddress,
+          data: '0x' as const,
+        },
+        ...GOLDEN_TX.frames.slice(1),
+      ],
+      signatures: [],
+    }
+    const senderEntries = await account.getSignatureEntries(base)
+    const payerEntries = await payer.getSignatureEntries(base)
+    const prepared = {
+      ...base,
+      signatures: [...senderEntries, ...payerEntries],
+    }
+
+    expect(prepared.signatures).toEqual([
+      { scheme: 1, signer: owner.address, msg: '0x', signature: '0x' },
+      { scheme: 1, signer: owner.address, msg: '0x', signature: '0x' },
+    ])
+
+    const signed = await signFrameTransaction(account, prepared, { payer })
+
+    expect(await recoverFrameSigner(signed, 0)).toBe(owner.address)
+    expect(await recoverFrameSigner(signed, 1)).toBe(owner.address)
+  })
 })
