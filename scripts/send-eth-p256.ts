@@ -31,7 +31,7 @@ import {
   parseRpcFrameReceipt,
   privateKeyToP256Account,
   sendFrameTransaction,
-  toP256FrameAccount,
+  toFrameAccount,
   type FrameRpcClient,
   type RpcFrameReceiptJson,
 } from '../src/index.js'
@@ -110,8 +110,9 @@ async function main(): Promise<void> {
     transport: http(rpcUrl),
   })
   const code = await client.getCode({ address: sender })
-  if (code === undefined || !code.toLowerCase().startsWith('0xef0100'))
+  if (code === undefined || !/^0xef0100[0-9a-fA-F]{40}$/.test(code))
     throw new Error(`sender ${sender} does not have an EIP-7702 delegation`)
+  const delegateAddress = getAddress(`0x${code.slice(8)}`)
 
   const signerCall = await client.call({
     to: sender,
@@ -129,7 +130,12 @@ async function main(): Promise<void> {
       `delegated account authorizes ${configuredSigner}, but the PEM identity is ${owner.address}`,
     )
 
-  const account = await toP256FrameAccount({ client, address: sender, owner })
+  const account = await toFrameAccount({
+    client,
+    address: sender,
+    owner,
+    delegateAddress,
+  })
   const [senderBalanceBefore, recipientBalanceBefore] = await Promise.all([
     client.getBalance({ address: sender }),
     client.getBalance({ address: recipient }),

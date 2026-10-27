@@ -9,7 +9,7 @@ import {
 } from 'viem'
 import { mainnet } from 'viem/chains'
 import * as P256 from 'ox/P256'
-import { toP256FrameAccount } from '../src/accounts/toP256FrameAccount.js'
+import { toFrameAccount } from '../src/accounts/toFrameAccount.js'
 import { FrameEncodeError } from '../src/errors.js'
 import {
   type P256FrameSigner,
@@ -26,6 +26,7 @@ import { GOLDEN_TX } from './fixtures/golden.js'
 
 const PRIVATE_KEY = numberToHex(1n, { size: 32 })
 const DELEGATED_EOA = getAddress('0x0000000000000000000000000000000000001234')
+const DELEGATE = getAddress('0x0000000000000000000000000000000000005678')
 
 describe('P-256 signer identity', () => {
   test('private scalar 1 derives the published P-256 generator coordinates', () => {
@@ -148,17 +149,18 @@ describe('signFrameSignature with a P-256 owner', () => {
   })
 })
 
-describe('toP256FrameAccount', () => {
+describe('toFrameAccount with a P-256 owner', () => {
   test('prepares and signs scheme-2 entry zero for a delegated EOA', async () => {
     const signer = privateKeyToP256Account(PRIVATE_KEY)
     const client = createClient({
       chain: mainnet,
       transport: custom({ async request() {} }),
     })
-    const account = await toP256FrameAccount({
+    const account = await toFrameAccount({
       client,
       address: DELEGATED_EOA,
       owner: signer,
+      delegateAddress: DELEGATE,
     })
     const entries = await account.getSignatureEntries(GOLDEN_TX)
     const unsigned = {
@@ -189,10 +191,11 @@ describe('toP256FrameAccount', () => {
       chain: mainnet,
       transport: custom({ async request() {} }),
     })
-    const account = await toP256FrameAccount({
+    const account = await toFrameAccount({
       client,
       address: DELEGATED_EOA,
       owner: signer,
+      delegateAddress: DELEGATE,
     })
 
     await expect(account.signFrameTransaction(GOLDEN_TX)).rejects.toThrow(

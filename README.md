@@ -100,9 +100,11 @@ const signed = await signFrameTx(tx, remoteAccount)
 ```
 
 A raw-digest `sign` is required. `signMessage` will not do: it EIP-191-prefixes its
-argument, so the signature recovers to nothing. A `JsonRpcAccount` (a browser wallet)
-cannot sign a raw digest at all — both are refused with an error rather than producing a
-transaction the chain silently rejects.
+argument, so the signature recovers to nothing. A plain `JsonRpcAccount` does not expose
+raw-digest signing, but `toFrameAccount` and `toFramePayerAccount` accept a `sign({ hash })`
+override for an injected, hardware, HSM, or remote account whose backend really can sign
+that digest. Do not implement the override with ordinary `personal_sign` or a prefixed
+`eth_sign` method; those produce a different signature.
 
 The same restriction applies to P-256 signers. WebCrypto's ECDSA API hashes its input
 internally, so passing the frame sig-hash to it signs `SHA-256(frameSigHash)`, not the
@@ -123,14 +125,36 @@ as `r || s || qx || qy`.
 ```ts
 import {
   privateKeyToP256Account,
-  toP256FrameAccount,
+  toFrameAccount,
 } from '@jaw.id/frametx-kit'
 
 const owner = privateKeyToP256Account(p256PrivateKey)
-const account = await toP256FrameAccount({
+const account = await toFrameAccount({
   client,
   address: delegatedEoa,
   owner,
+  delegateAddress: p256Implementation,
+})
+```
+
+The same constructor handles an ordinary local EOA:
+
+```ts
+const account = await toFrameAccount({
+  client,
+  owner: privateKeyToAccount(privateKey),
+})
+```
+
+For an injected or remote account, supply its viem account object and a raw-digest
+adapter. The adapter is explicit because standard browser-wallet signing methods do not
+guarantee the semantics required by a frame signature:
+
+```ts
+const account = await toFrameAccount({
+  client,
+  owner: walletClient.account,
+  sign: ({ hash }) => rawSigner.signDigest(hash),
 })
 ```
 
@@ -159,15 +183,15 @@ const receipt = await client.waitForFrameTransactionReceipt({ hash })
 
 Passing every check here does not guarantee admission. The VERIFY prefix must `APPROVE`
 payment, and the payer must hold the transaction's `maxCost`, or the frame reverts. A
-code-less EOA gets that from the protocol's default code, which `toEoaFrameAccount` targets;
-anything else needs its own validating contract. Dry-run with
+code-less EOA gets that from the protocol's default code, which `toFrameAccount` uses by
+default; anything else needs its own validating contract. Dry-run with
 `client.simulateFrameTransaction({ raw })` before spending.
 
 To use a separate codeless EOA payer, resolve it from a raw-digest-capable account and pass
 it through preparation and signing:
 
 ```ts
-const payer = await toEoaFramePayerAccount({
+const payer = await toFramePayerAccount({
   owner: privateKeyToAccount(payerPrivateKey),
 })
 
@@ -183,10 +207,10 @@ const signed = await signFrameTransaction(account, transaction, { payer })
 
 This changes the validation prefix from `self_verify` to `only_verify -> pay`. The
 sender signs outer signature index `0`; the EOA payer signs the protocol-reserved payment
-signature at index `1`. Both entries are installed during preparation, before either
-signature is produced, so both signatures commit to the same transaction hash. Custom
-contract payers can be defined with `toFramePayerAccount` to provide their PAY calldata,
-signature entries, and signing behavior.
+signature. Both entries are installed during preparation, before either signature is
+produced, so both signatures commit to the same transaction hash. Contract payers use the
+same `toFramePayerAccount` constructor and can override their PAY calldata, signature
+entries, and signing behavior.
 
 ## Nonces are keyed
 

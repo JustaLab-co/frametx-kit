@@ -13,8 +13,8 @@ commit of [`lambdaclass/ethrex`](https://github.com/lambdaclass/ethrex/tree/bdfc
 
 A TypeScript client for frame transactions: build, validate, encode, decode, hash, sign,
 price, simulate, broadcast, and read them back with their frame receipts. It ships a small
-account abstraction (`toFrameAccount`, `toEoaFrameAccount`, `toFramePayerAccount`,
-`toEoaFramePayerAccount`), `prepareFrameTransaction`, and a viem extension
+account abstraction (`toFrameAccount`, `toFramePayerAccount`),
+`prepareFrameTransaction`, and a viem extension
 (`client.extend(frameActions)`). It is not a fork of viem core.
 
 Not supported:
@@ -141,24 +141,31 @@ from a sender that does not exist yet. These are budgeting figures for choosing
 A `FrameAccountImplementation` supplies `getAddress()`, `getNonce({ key?, blockTag? })` (the
 current sequence of one nonce key), `getValidationData({ calls, chainId, nonceKeys,
 nonceSeq })`, `getSignatureEntries(tx)`, `signFrameTransaction(tx)` and an execution
-strategy; `toFrameAccount` resolves it into a `FrameAccount`.
+strategy. `toFrameAccount` is the single constructor for both codeless and delegated
+senders. It provides overridable defaults: the sender is `owner.address`, nonce key `0`
+comes from `eth_getTransactionCount`, other keys come from `NONCE_MANAGER`, validation
+data is empty, and the signature scheme is inferred from the owner.
 
-`toEoaFrameAccount` targets a code-less EOA through the protocol's default code: key `0`
-from `eth_getTransactionCount`, other keys from `NONCE_MANAGER` via `eth_getStorageAt`, empty
-validation data, and one empty-`msg`, empty-`signer` SECP256K1 entry.
+A viem owner produces a SECP256K1 entry. A P-256 owner produces a P256 entry with the
+explicit identity `last20Bytes(keccak256(qx || qy))`; its signer signs the frame sig-hash
+directly, normalizes `s` low, and encodes `r || s || qx || qy`. Passing `address` separately
+represents a delegated EOA controlled by a different signer, and `delegateAddress` records
+the expected EIP-7702 implementation. Account-specific validation or signature policies
+override `getValidationData`, `getSignatureEntries`, or `signFrameTransaction` on the same
+constructor.
 
-`toP256FrameAccount` targets an EIP-7702 delegated EOA whose validation code authorizes a
-P-256 signer. It emits one empty-`msg` P256 entry with the explicit signer identity
-`last20Bytes(keccak256(qx || qy))` at index `0`. Its signer signs the already-computed
-frame sig-hash directly, without applying SHA-256 a second time, normalizes `s` low, and
-encodes `r || s || qx || qy`.
+A plain JSON-RPC/injected account has no raw-digest signing method. The optional
+`sign({ hash })` adapter supports an injected, hardware, HSM, or remote backend only when
+that backend actually signs the supplied digest. EIP-191 `signMessage`, `personal_sign`,
+and prefixed `eth_sign` behavior are not substitutes.
 
 A `FramePayerAccountImplementation` supplies `getAddress()`, `getPayData(tx)`,
-`getSignatureEntries(tx)` and `signFrameTransaction(tx)`; `toFramePayerAccount` resolves
-it into a `FramePayerAccount`. `toEoaFramePayerAccount` implements the protocol's codeless
-EOA payer path: empty PAY calldata and an empty-`msg` SECP256K1 entry at index `1` whose
-explicit signer is the payer. The explicit address is required because an empty signer
-resolves to `tx.sender`.
+`getSignatureEntries(tx)` and `signFrameTransaction(tx)`. `toFramePayerAccount` is the
+single payer constructor. Its defaults cover a codeless EOA payer: empty PAY calldata and
+an empty-`msg` signature entry whose explicit signer is the payer, since an empty signer
+would resolve to `tx.sender`. Delegated or contract payers override the same callbacks.
+Signing locates the payer-owned entry by scheme and resolved signer rather than assuming a
+fixed signature-array index.
 
 `prepareFrameTransaction(account, calls, limits, { nonceKeys?, blockTag?, paymaster? })`
 builds one SENDER frame per call and reads fees from the node (`2 * baseFee + priorityFee`,

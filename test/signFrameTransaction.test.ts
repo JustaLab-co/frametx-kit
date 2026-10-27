@@ -2,8 +2,8 @@ import { describe, expect, test, vi } from 'vitest'
 import { createClient, custom, getAddress } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { mainnet } from 'viem/chains'
-import { toEoaFrameAccount } from '../src/accounts/toEoaFrameAccount.js'
-import { toEoaFramePayerAccount } from '../src/accounts/toEoaFramePayerAccount.js'
+import { toFrameAccount } from '../src/accounts/toFrameAccount.js'
+import { toFramePayerAccount } from '../src/accounts/toFramePayerAccount.js'
 import { signFrameTransaction } from '../src/signFrameTransaction.js'
 import { recoverFrameSigner } from '../src/signatures.js'
 import { GOLDEN_TX } from './fixtures/golden.js'
@@ -18,7 +18,7 @@ describe('signFrameTransaction', () => {
       chain: mainnet,
       transport: custom({ async request() {} }),
     })
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
     const unsigned = { ...GOLDEN_TX, sender: owner.address, signatures: [] }
     const spy = vi.spyOn(account, 'signFrameTransaction')
 
@@ -36,7 +36,7 @@ describe('signFrameTransaction', () => {
       chain: mainnet,
       transport: custom({ async request() {} }),
     })
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
     const spy = vi.spyOn(account, 'signFrameTransaction')
 
     await expect(
@@ -56,8 +56,8 @@ describe('signFrameTransaction', () => {
       chain: mainnet,
       transport: custom({ async request() {} }),
     })
-    const account = await toEoaFrameAccount({ client, owner })
-    const payer = await toEoaFramePayerAccount({ owner: payerOwner })
+    const account = await toFrameAccount({ client, owner })
+    const payer = await toFramePayerAccount({ owner: payerOwner })
     const base = {
       ...GOLDEN_TX,
       sender: owner.address,

@@ -3,8 +3,6 @@ import { createClient, custom, getAddress, size } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { mainnet } from 'viem/chains'
 import { toFrameAccount } from '../src/accounts/toFrameAccount.js'
-import { toEoaFrameAccount } from '../src/accounts/toEoaFrameAccount.js'
-import { toEoaFramePayerAccount } from '../src/accounts/toEoaFramePayerAccount.js'
 import { toFramePayerAccount } from '../src/accounts/toFramePayerAccount.js'
 import { privateKeyToP256Account } from '../src/p256.js'
 import { recoverFrameSigner, signFrameSignature } from '../src/signatures.js'
@@ -68,11 +66,11 @@ describe('toFrameAccount', () => {
   })
 })
 
-describe('toEoaFramePayerAccount', () => {
+describe('toFramePayerAccount defaults', () => {
   test('uses default-code payment approval and signs index 1 as the payer', async () => {
     const sender = privateKeyToAccount(OWNER_KEY)
     const payerOwner = privateKeyToAccount(`0x${'22'.repeat(32)}`)
-    const payer = await toEoaFramePayerAccount({ owner: payerOwner })
+    const payer = await toFramePayerAccount({ owner: payerOwner })
     const transaction = {
       ...GOLDEN_TX,
       sender: sender.address,
@@ -105,35 +103,62 @@ describe('toEoaFramePayerAccount', () => {
     expect(await recoverFrameSigner(signed, 1)).toBe(payerOwner.address)
   })
 
-  test('requires its signature metadata at protocol-reserved index 1', async () => {
-    const payer = await toEoaFramePayerAccount({
+  test('does not hardcode the payer signature index', async () => {
+    const payer = await toFramePayerAccount({
       owner: privateKeyToAccount(`0x${'22'.repeat(32)}`),
     })
+    const transaction = {
+      ...GOLDEN_TX,
+      frames: [
+        {
+          ...GOLDEN_TX.frames[0]!,
+          flags: 0x1,
+          target: payer.address,
+        },
+        ...GOLDEN_TX.frames.slice(1),
+      ],
+      signatures: [],
+    }
 
-    await expect(
-      payer.getSignatureEntries({
-        ...GOLDEN_TX,
-        frames: [
-          {
-            ...GOLDEN_TX.frames[0]!,
-            flags: 0x1,
-            target: payer.address,
-          },
-          ...GOLDEN_TX.frames.slice(1),
-        ],
-        signatures: [],
-      }),
-    ).rejects.toThrow(/inserted at index 1/)
+    const signed = await payer.signFrameTransaction(transaction)
+
+    expect(signed.signatures).toHaveLength(1)
+    expect(await recoverFrameSigner(signed, 0)).toBe(payer.owner.address)
   })
 
   test('refuses to sign without a pay frame targeting the payer', async () => {
-    const payer = await toEoaFramePayerAccount({
+    const payer = await toFramePayerAccount({
       owner: privateKeyToAccount(`0x${'22'.repeat(32)}`),
     })
 
     await expect(
       payer.signFrameTransaction({ ...GOLDEN_TX, signatures: [] }),
     ).rejects.toThrow(/no payment-only VERIFY frame/)
+  })
+
+  test('signs through a raw-digest override for an injected payer account', async () => {
+    const signer = privateKeyToAccount(`0x${'22'.repeat(32)}`)
+    const owner = { address: signer.address, type: 'json-rpc' as const }
+    const payer = await toFramePayerAccount({
+      owner,
+      sign: ({ hash }) => signer.sign({ hash }),
+    })
+    const transaction = {
+      ...GOLDEN_TX,
+      frames: [
+        {
+          ...GOLDEN_TX.frames[0]!,
+          flags: 0x1,
+          target: payer.address,
+        },
+        ...GOLDEN_TX.frames.slice(1),
+      ],
+      signatures: [GOLDEN_TX.signatures[0]!],
+    }
+
+    const signed = await payer.signFrameTransaction(transaction)
+
+    expect(await recoverFrameSigner(signed, 1)).toBe(owner.address)
   })
 })
 
@@ -184,7 +209,7 @@ describe('toFramePayerAccount', () => {
   })
 })
 
-describe('toEoaFrameAccount', () => {
+describe('toFrameAccount defaults', () => {
   test('uses default-code validation and signs as the EOA', async () => {
     const owner = privateKeyToAccount(OWNER_KEY)
     const client = createClient({
@@ -192,7 +217,7 @@ describe('toEoaFrameAccount', () => {
       chain: mainnet,
       transport: custom({ async request() {} }),
     })
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
     const unsigned = { ...GOLDEN_TX, sender: owner.address, signatures: [] }
 
     expect(
@@ -200,6 +225,30 @@ describe('toEoaFrameAccount', () => {
     ).toBe('0x')
     const signed = await account.signFrameTransaction(unsigned)
     expect(signed.signatures[0]).toMatchObject({ scheme: 1, signer: null, msg: '0x' })
+    expect(await recoverFrameSigner(signed, 0)).toBe(owner.address)
+  })
+
+  test('signs through a raw-digest override for an injected account', async () => {
+    const signer = privateKeyToAccount(OWNER_KEY)
+    const owner = { address: signer.address, type: 'json-rpc' as const }
+    const client = createClient({
+      account: owner,
+      chain: mainnet,
+      transport: custom({ async request() {} }),
+    })
+    const account = await toFrameAccount({
+      client,
+      owner,
+      sign: ({ hash }) => signer.sign({ hash }),
+    })
+    const transaction = {
+      ...GOLDEN_TX,
+      sender: owner.address,
+      signatures: [],
+    }
+
+    const signed = await account.signFrameTransaction(transaction)
+
     expect(await recoverFrameSigner(signed, 0)).toBe(owner.address)
   })
 
@@ -216,7 +265,7 @@ describe('toEoaFrameAccount', () => {
         },
       }),
     })
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
 
     expect(await account.getNonce()).toBe(7n)
     expect(requests).toEqual([
@@ -237,7 +286,7 @@ describe('toEoaFrameAccount', () => {
         },
       }),
     })
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
 
     expect(await account.getNonce({ key: 5n, blockTag: 'latest' })).toBe(3n)
     // Slot computed independently: `cast keccak` over
@@ -261,7 +310,9 @@ describe('toEoaFrameAccount', () => {
       chain: mainnet,
       transport: custom({ async request() {} }),
     })
-    const account = await toEoaFrameAccount({ client, owner })
-    await expect(account.signFrameTransaction(GOLDEN_TX)).rejects.toThrow(/does not match EOA/)
+    const account = await toFrameAccount({ client, owner })
+    await expect(account.signFrameTransaction(GOLDEN_TX)).rejects.toThrow(
+      /does not match frame account/,
+    )
   })
 })
