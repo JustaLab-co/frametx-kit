@@ -10,6 +10,7 @@ import {
 } from 'viem'
 import { FrameEncodeError } from '../errors.js'
 import { getFrameNonceSeq } from '../nonce.js'
+import type { P256FrameSigner } from '../p256.js'
 import { signFrameSignature } from '../signatures.js'
 import type { FrameTransaction } from '../types.js'
 import {
@@ -60,7 +61,10 @@ type DefaultFrameAccountParameters<
   chain extends Chain | undefined,
   owner extends FrameAccountOwner,
   extend extends object,
-> = FrameAccountBaseParameters<chain, owner, extend> & { owner: owner }
+> = FrameAccountBaseParameters<chain, owner, extend> &
+  (owner extends P256FrameSigner
+    ? { owner: owner; address: Address; getAddress?: never }
+    : { owner: owner })
 
 type CustomFrameAccountParameters<
   chain extends Chain | undefined,
@@ -108,6 +112,10 @@ export async function toFrameAccount<
   parameters: ToFrameAccountParameters<chain, owner, extend>,
 ): Promise<ToFrameAccountReturnType<chain, owner, extend>> {
   const { client, owner } = parameters
+  if (owner?.type === 'p256' && parameters.address === undefined)
+    throw new FrameEncodeError(
+      'P-256 frame accounts require an explicit address',
+    )
   if (parameters.address !== undefined && parameters.getAddress !== undefined)
     throw new FrameEncodeError(
       'frame account parameters cannot include both address and getAddress',

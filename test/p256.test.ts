@@ -197,25 +197,17 @@ describe('toFrameAccount with a P-256 owner', () => {
     ])
   })
 
-  test('keeps an explicit signer when the P-256 identity equals the sender', async () => {
+  test('requires an explicit account address for a P-256 owner', async () => {
     const signer = privateKeyToP256Account(PRIVATE_KEY)
     const client = createClient({
       chain: mainnet,
       transport: custom({ async request() {} }),
     })
-    const account = await toFrameAccount({ client, owner: signer })
 
-    const signed = await account.signFrameTransaction({
-      ...GOLDEN_TX,
-      sender: signer.address,
-      signatures: [],
-    })
-
-    expect(signed.signatures[0]).toMatchObject({
-      scheme: 2,
-      signer: signer.address,
-      msg: '0x',
-    })
+    await expect(
+      // @ts-expect-error P-256 owners must identify the on-chain frame account.
+      toFrameAccount({ client, owner: signer }),
+    ).rejects.toThrow(/P-256 frame accounts require an explicit address/)
   })
 
   test('rejects a transaction for a different sender', async () => {
@@ -250,6 +242,7 @@ describe('toFrameAccount with a P-256 owner', () => {
     })
     const account = await toFrameAccount({
       client,
+      address: DELEGATED_EOA,
       owner: signer,
       sign: async ({ hash }) => {
         called = true
@@ -258,7 +251,7 @@ describe('toFrameAccount with a P-256 owner', () => {
     })
     const signed = await account.signFrameTransaction({
       ...GOLDEN_TX,
-      sender: signer.address,
+      sender: DELEGATED_EOA,
       signatures: [
         { scheme: 2, signer: signer.address, msg: '0x', signature: '0x' },
       ],

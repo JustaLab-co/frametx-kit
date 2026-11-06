@@ -1,5 +1,6 @@
 import { type Address, isAddressEqual } from 'viem'
 import { FrameEncodeError } from '../errors.js'
+import type { P256FrameSigner } from '../p256.js'
 import { signFrameSignature } from '../signatures.js'
 import type { FrameTransaction } from '../types.js'
 import {
@@ -37,7 +38,10 @@ type FramePayerAccountBaseParameters<
 type DefaultFramePayerAccountParameters<
   owner extends FrameAccountOwner,
   extend extends object,
-> = FramePayerAccountBaseParameters<owner, extend> & { owner: owner }
+> = FramePayerAccountBaseParameters<owner, extend> &
+  (owner extends P256FrameSigner
+    ? { owner: owner; address: Address; getAddress?: never }
+    : { owner: owner })
 
 type CustomFramePayerAccountParameters<extend extends object> =
   FramePayerAccountBaseParameters<undefined, extend> & {
@@ -75,6 +79,10 @@ export async function toFramePayerAccount<
   parameters: ToFramePayerAccountParameters<owner, extend>,
 ): Promise<ToFramePayerAccountReturnType<owner, extend>> {
   const { owner } = parameters
+  if (owner?.type === 'p256' && parameters.address === undefined)
+    throw new FrameEncodeError(
+      'P-256 frame payer accounts require an explicit address',
+    )
   if (parameters.address !== undefined && parameters.getAddress !== undefined)
     throw new FrameEncodeError(
       'frame payer parameters cannot include both address and getAddress',
@@ -113,6 +121,8 @@ export async function toFramePayerAccount<
   }
 
   const signingOwner = ownerWithSigner(owner, parameters.sign)
+  const usesDefaultCodelessEoaPolicy =
+    owner.type !== 'p256' && isAddressEqual(address, owner.address)
 
   async function assertPayFrame(transaction: FrameTransaction): Promise<void> {
     if (isAddressEqual(transaction.sender, address))
@@ -138,6 +148,10 @@ export async function toFramePayerAccount<
     parameters.getSignatureEntries ??
     (async (transaction: FrameTransaction) => {
       await assertPayFrame(transaction)
+      if (usesDefaultCodelessEoaPolicy && transaction.signatures.length !== 1)
+        throw new FrameEncodeError(
+          `default codeless EOA payer ${address} requires exactly one sender signature entry before its payer entry at index 1`,
+        )
       return [ownerSignatureEntry(owner, owner.address)]
     })
 
@@ -145,6 +159,31 @@ export async function toFramePayerAccount<
     parameters.signFrameTransaction ??
     (async (transaction: FrameTransaction) => {
       await assertPayFrame(transaction)
+
+      if (usesDefaultCodelessEoaPolicy) {
+        let prepared = transaction
+        const payerEntry = prepared.signatures[1]
+        const hasPayerAtIndexOne =
+          payerEntry !== undefined &&
+          payerEntry.scheme === 1 &&
+          payerEntry.signer !== null &&
+          isAddressEqual(payerEntry.signer, owner.address) &&
+          payerEntry.msg === '0x'
+
+        if (!hasPayerAtIndexOne) {
+          if (transaction.signatures.some((entry) => entry.signature !== '0x'))
+            throw new FrameEncodeError(
+              `frame payer ${address} has no entry at index 1 and other entries are already signed; install payer entries during preparation`,
+            )
+          const entries = await getSignatureEntries(transaction)
+          prepared = {
+            ...transaction,
+            signatures: [...transaction.signatures, ...entries],
+          }
+        }
+
+        return signFrameSignature(prepared, 1, signingOwner)
+      }
 
       let prepared = transaction
       let signatureIndex = findOwnerSignatureIndex(prepared, owner, 'last', {

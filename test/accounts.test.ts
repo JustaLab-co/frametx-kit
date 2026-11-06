@@ -169,7 +169,7 @@ describe('toFramePayerAccount defaults', () => {
     expect(await recoverFrameSigner(signed, 1)).toBe(payerOwner.address)
   })
 
-  test('does not hardcode the payer signature index', async () => {
+  test('refuses to place the default codeless EOA payer at index 0', async () => {
     const payer = await toFramePayerAccount({
       owner: privateKeyToAccount(`0x${'22'.repeat(32)}`),
     })
@@ -186,10 +186,40 @@ describe('toFramePayerAccount defaults', () => {
       signatures: [],
     }
 
-    const signed = await payer.signFrameTransaction(transaction)
+    await expect(payer.getSignatureEntries(transaction)).rejects.toThrow(
+      /payer entry at index 1/,
+    )
+    await expect(payer.signFrameTransaction(transaction)).rejects.toThrow(
+      /payer entry at index 1/,
+    )
+  })
 
-    expect(signed.signatures).toHaveLength(1)
-    expect(await recoverFrameSigner(signed, 0)).toBe(payer.owner.address)
+  test('refuses to place the default codeless EOA payer at index 2', async () => {
+    const payer = await toFramePayerAccount({
+      owner: privateKeyToAccount(`0x${'22'.repeat(32)}`),
+    })
+    const transaction = {
+      ...GOLDEN_TX,
+      frames: [
+        {
+          ...GOLDEN_TX.frames[0]!,
+          flags: 0x1,
+          target: payer.address,
+        },
+        ...GOLDEN_TX.frames.slice(1),
+      ],
+      signatures: [
+        { scheme: 1 as const, signer: null, msg: '0x' as const, signature: '0x' as const },
+        { scheme: 1 as const, signer: OTHER, msg: '0x' as const, signature: '0x' as const },
+      ],
+    }
+
+    await expect(payer.getSignatureEntries(transaction)).rejects.toThrow(
+      /payer entry at index 1/,
+    )
+    await expect(payer.signFrameTransaction(transaction)).rejects.toThrow(
+      /payer entry at index 1/,
+    )
   })
 
   test('does not append its entry after another entry has been signed', async () => {
@@ -214,6 +244,36 @@ describe('toFramePayerAccount defaults', () => {
       /other entries are already signed/,
     )
     expect(await recoverFrameSigner(senderSigned, 0)).toBe(sender.address)
+  })
+
+  test('does not reuse a signed delegated-sender entry owned by the payer key', async () => {
+    const sharedOwner = privateKeyToAccount(OWNER_KEY)
+    const payer = await toFramePayerAccount({ owner: sharedOwner })
+    const unsigned = {
+      ...GOLDEN_TX,
+      sender: OTHER,
+      frames: [
+        { ...GOLDEN_TX.frames[0]!, flags: 0x1, target: payer.address },
+        ...GOLDEN_TX.frames.slice(1),
+      ],
+      signatures: [
+        {
+          scheme: 1 as const,
+          signer: sharedOwner.address,
+          msg: '0x' as const,
+          signature: '0x' as const,
+        },
+      ],
+    }
+    const senderSigned = await signFrameSignature(unsigned, 0, sharedOwner)
+    const senderSignature = senderSigned.signatures[0]!.signature
+
+    await expect(payer.signFrameTransaction(senderSigned)).rejects.toThrow(
+      /no entry at index 1 and other entries are already signed/,
+    )
+    expect(senderSigned.signatures).toHaveLength(1)
+    expect(senderSigned.signatures[0]!.signature).toBe(senderSignature)
+    expect(await recoverFrameSigner(senderSigned, 0)).toBe(sharedOwner.address)
   })
 
   test('refuses the default payer policy when sender and payer are the same address', async () => {
@@ -362,6 +422,15 @@ describe('toFramePayerAccount', () => {
     expect(
       P256.verify({ payload: frameTxSigHash(signed), publicKey, signature }),
     ).toBe(true)
+  })
+
+  test('requires an explicit payer address for a P-256 owner', async () => {
+    const owner = privateKeyToP256Account(`0x${'01'.padStart(64, '0')}`)
+
+    await expect(
+      // @ts-expect-error P-256 owners must identify the on-chain payer account.
+      toFramePayerAccount({ owner }),
+    ).rejects.toThrow(/P-256 frame payer accounts require an explicit address/)
   })
 
   test('supports an ownerless payer when every policy callback is supplied', async () => {
