@@ -25,7 +25,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import {
   hegotaTestnet,
   sendFrameTransaction,
-  toEoaFrameAccount,
+  toFrameAccount,
 } from '../src/index.js'
 import { frameActions } from '../src/viem.js'
 
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
     chain: hegotaTestnet,
     transport: http(rpcUrl),
   }).extend(frameActions)
-  const account = await toEoaFrameAccount({ client, owner })
+  const account = await toFrameAccount({ client, owner })
 
   console.log(`sender:    ${account.address}`)
   console.log(`recipient: ${recipient}`)

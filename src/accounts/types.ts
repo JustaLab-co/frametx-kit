@@ -87,6 +87,8 @@ export type FrameAccountImplementation<
   >
   /** Account or signer that controls the frame account. */
   owner: owner
+  /** Expected EIP-7702 delegate, when the sender is a delegated EOA. */
+  delegateAddress?: Address | undefined
   /** How calls are represented by execution frames. */
   execution: DirectFrameExecution
   /** Add implementation-specific properties to the resolved account. */

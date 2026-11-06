@@ -18,31 +18,12 @@ export {
   type ToFramePayerAccountReturnType,
   toFramePayerAccount,
 } from './accounts/toFramePayerAccount.js'
-export {
-  type EoaFramePayerAccountImplementation,
-  type EoaFramePayerOwner,
-  type ToEoaFramePayerAccountParameters,
-  type ToEoaFramePayerAccountReturnType,
-  toEoaFramePayerAccount,
-} from './accounts/toEoaFramePayerAccount.js'
+export { type RawFrameSigner } from './accounts/defaults.js'
 export {
   type ToFrameAccountParameters,
   type ToFrameAccountReturnType,
   toFrameAccount,
 } from './accounts/toFrameAccount.js'
-export {
-  type EoaFrameAccountImplementation,
-  type EoaFrameOwner,
-  type ToEoaFrameAccountParameters,
-  type ToEoaFrameAccountReturnType,
-  toEoaFrameAccount,
-} from './accounts/toEoaFrameAccount.js'
-export {
-  type P256FrameAccountImplementation,
-  type ToP256FrameAccountParameters,
-  type ToP256FrameAccountReturnType,
-  toP256FrameAccount,
-} from './accounts/toP256FrameAccount.js'
 export {
   type GetFrameNonceSeqParameters,
   NONCE_MANAGER,
