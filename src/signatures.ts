@@ -224,10 +224,14 @@ async function signP256Entry(
   const s = returnedS > SECP256R1_N / 2n ? SECP256R1_N - returnedS : returnedS
   const publicKey = {
     prefix: 4 as const,
-    x: BigInt(sliceHex(signer.publicKey, 1, 33)),
-    y: BigInt(sliceHex(signer.publicKey, 33, 65)),
+    x: sliceHex(signer.publicKey, 1, 33),
+    y: sliceHex(signer.publicKey, 33, 65),
   }
-  if (!P256.verify({ payload: digest, publicKey, signature: { r, s } }))
+  const signature = {
+    r: numberToHex(r, { size: 32 }),
+    s: numberToHex(s, { size: 32 }),
+  }
+  if (!P256.verify({ payload: digest, publicKey, signature }))
     throw new FrameEncodeError(
       `signature ${index}: signer returned a signature that does not verify against its public key`,
     )

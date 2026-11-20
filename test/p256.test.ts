@@ -84,13 +84,13 @@ describe('signFrameSignature with a P-256 owner', () => {
     expect(() => assertCanonicalSignature(signed.signatures[0]!, 0)).not.toThrow()
 
     const signature = {
-      r: BigInt(sliceHex(bytes, 0, 32)),
-      s: BigInt(sliceHex(bytes, 32, 64)),
+      r: sliceHex(bytes, 0, 32),
+      s: sliceHex(bytes, 32, 64),
     }
     const publicKey = {
       prefix: 4 as const,
-      x: BigInt(sliceHex(signer.publicKey, 1, 33)),
-      y: BigInt(sliceHex(signer.publicKey, 33, 65)),
+      x: sliceHex(signer.publicKey, 1, 33),
+      y: sliceHex(signer.publicKey, 33, 65),
     }
     expect(P256.verify({ payload: hash, publicKey, signature })).toBe(true)
     expect(P256.verify({ payload: hash, publicKey, signature, hash: true })).toBe(false)

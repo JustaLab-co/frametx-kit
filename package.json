@@ -74,7 +74,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "ox": "^0.14.45"
+    "ox": "^1.8.16"
   },
   "peerDependencies": {
     "viem": "^2.21.0"
@@ -92,6 +92,6 @@
   },
   "engines": {
     "bun": ">=1.2.0",
-    "node": ">=20"
+    "node": "^20.19.0 || >=22.12.0"
   }
 }
