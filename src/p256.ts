@@ -4,7 +4,6 @@ import {
   concatHex,
   getAddress,
   keccak256,
-  numberToHex,
   size,
   sliceHex,
 } from 'viem'
@@ -35,12 +34,12 @@ function oxPublicKey(publicKey: Hex) {
   const qy = sliceHex(publicKey, 33, 65)
   const value = {
     prefix: 4 as const,
-    x: BigInt(qx),
-    y: BigInt(qy),
+    x: qx,
+    y: qy,
   }
 
   try {
-    P256.noble.ProjectivePoint.fromHex(publicKey.slice(2))
+    P256.noble.Point.fromHex(publicKey.slice(2))
   } catch {
     throw new FrameEncodeError('P-256 public key is not a point on the curve')
   }
@@ -57,18 +56,14 @@ export function p256SignerIdentity(publicKey: Hex): Address {
 export function privateKeyToP256Account(privateKey: Hex): P256FrameSigner {
   assertBytes32(privateKey, 'P-256 private key')
 
-  let point: ReturnType<typeof P256.getPublicKey>
+  let point: ReturnType<typeof P256.getPublicKey<'Object'>>
   try {
     point = P256.getPublicKey({ privateKey })
   } catch {
     throw new FrameEncodeError('P-256 private key is not a valid scalar')
   }
 
-  const publicKey = concatHex([
-    '0x04',
-    numberToHex(point.x, { size: 32 }),
-    numberToHex(point.y, { size: 32 }),
-  ])
+  const publicKey = concatHex(['0x04', point.x, point.y])
 
   return {
     type: 'p256',
@@ -83,10 +78,7 @@ export function privateKeyToP256Account(privateKey: Hex): P256FrameSigner {
         privateKey,
         extraEntropy: false,
       })
-      return concatHex([
-        numberToHex(r, { size: 32 }),
-        numberToHex(s, { size: 32 }),
-      ])
+      return concatHex([r, s])
     },
   }
 }
