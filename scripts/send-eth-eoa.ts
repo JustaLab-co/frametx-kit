@@ -33,7 +33,7 @@ import {
   prepareFrameTransaction,
   simulateFrameTransaction,
   signFrameTransaction,
-  toEoaFrameAccount,
+  toFrameAccount,
   type FrameRpcClient,
   type RpcFrameReceiptJson,
 } from '../src/index.js'
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
     chain: hegotaTestnet,
     transport: http(rpcUrl),
   })
-  const account = await toEoaFrameAccount({ client, owner })
+  const account = await toFrameAccount({ client, owner })
 
   const unsigned = await prepareFrameTransaction(
     account,

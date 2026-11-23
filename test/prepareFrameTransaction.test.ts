@@ -2,8 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { createClient, custom, getAddress } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { mainnet } from 'viem/chains'
-import { toEoaFrameAccount } from '../src/accounts/toEoaFrameAccount.js'
-import { toEoaFramePayerAccount } from '../src/accounts/toEoaFramePayerAccount.js'
+import { toFrameAccount } from '../src/accounts/toFrameAccount.js'
 import { toFramePayerAccount } from '../src/accounts/toFramePayerAccount.js'
 import { keyedNonceSlot } from '../src/nonce.js'
 import { prepareFrameTransaction } from '../src/prepareFrameTransaction.js'
@@ -56,7 +55,7 @@ function testClient(storage: Record<string, bigint> = {}) {
 describe('prepareFrameTransaction', () => {
   test('builds a VERIFY frame and one SENDER frame per call', async () => {
     const { client, owner, requests } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
     const first = getAddress('0x0000000000000000000000000000000000001234')
     const second = getAddress('0x0000000000000000000000000000000000005678')
 
@@ -122,7 +121,7 @@ describe('prepareFrameTransaction', () => {
 
   test('builds only_verify and pay frames before sponsored calls', async () => {
     const { client, owner } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
     const paymaster = getAddress('0x0000000000000000000000000000000000009999')
     const payer = await contractPayer(owner, paymaster, '0xabcdef')
     const recipient = getAddress('0x0000000000000000000000000000000000001234')
@@ -172,9 +171,9 @@ describe('prepareFrameTransaction', () => {
 
   test('prepares and signs with a distinct codeless EOA payer', async () => {
     const { client, owner } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
     const payerOwner = privateKeyToAccount(`0x${'22'.repeat(32)}`)
-    const payer = await toEoaFramePayerAccount({ owner: payerOwner })
+    const payer = await toFramePayerAccount({ owner: payerOwner })
 
     const transaction = await prepareFrameTransaction(
       account,
@@ -204,7 +203,7 @@ describe('prepareFrameTransaction', () => {
 
   test('rejects negative paymaster limits before making RPC requests', async () => {
     const { client, owner, requests } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
     const payer = await contractPayer(owner, owner.address)
 
     await expect(
@@ -225,7 +224,7 @@ describe('prepareFrameTransaction', () => {
 
   test('accounts for the pay frame in the transaction frame limit', async () => {
     const { client, owner, requests } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
     const payer = await contractPayer(owner, owner.address)
     const calls = Array.from({ length: 63 }, () => ({
       to: owner.address,
@@ -256,7 +255,7 @@ describe('prepareFrameTransaction', () => {
     const owner = privateKeyToAccount(OWNER_KEY)
     const [one, nine] = [1n, 9n].map((key) => keyedNonceSlot(owner.address, key))
     const { client } = testClient({ [one!]: 4n, [nine!]: 4n })
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
 
     const transaction = await prepareFrameTransaction(
       account,
@@ -271,7 +270,7 @@ describe('prepareFrameTransaction', () => {
   test('refuses keys that sit at different sequences', async () => {
     const owner = privateKeyToAccount(OWNER_KEY)
     const { client } = testClient({ [keyedNonceSlot(owner.address, 2n)]: 1n })
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
 
     await expect(
       prepareFrameTransaction(
@@ -292,7 +291,7 @@ describe('prepareFrameTransaction', () => {
     ['negative', [-1n], /nonceKeys\[0\]/],
   ])('refuses nonceKeys (%s) before making RPC requests', async (_, nonceKeys, message) => {
     const { client, owner, requests } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
 
     await expect(
       prepareFrameTransaction(
@@ -307,7 +306,7 @@ describe('prepareFrameTransaction', () => {
 
   test('requires one call-limit entry per call', async () => {
     const { client, owner, requests } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
 
     await expect(
       prepareFrameTransaction(
@@ -321,7 +320,7 @@ describe('prepareFrameTransaction', () => {
 
   test('rejects negative frame limits before making RPC requests', async () => {
     const { client, owner, requests } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
 
     await expect(
       prepareFrameTransaction(

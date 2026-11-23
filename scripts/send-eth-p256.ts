@@ -5,6 +5,7 @@
  * Required:
  *   SENDER=0x...
  *   RECIPIENT=0x...
+ *   P256_IMPLEMENTATION_ADDRESS=0x...
  *   P256_PRIVATE_KEY_PATH=/absolute/path/to/p256-private.pem
  *
  * Optional:
@@ -31,7 +32,7 @@ import {
   parseRpcFrameReceipt,
   privateKeyToP256Account,
   sendFrameTransaction,
-  toP256FrameAccount,
+  toFrameAccount,
   type FrameRpcClient,
   type RpcFrameReceiptJson,
 } from '../src/index.js'
@@ -91,6 +92,7 @@ async function main(): Promise<void> {
   const rpcUrl = process.env.RPC_URL ?? 'https://rpc1.privacy.ethrex.xyz'
   const sender = getAddress(requiredEnv('SENDER'))
   const recipient = getAddress(requiredEnv('RECIPIENT'))
+  const delegateAddress = getAddress(requiredEnv('P256_IMPLEMENTATION_ADDRESS'))
   const amount = parseEther(process.env.AMOUNT_ETH ?? '0.000001')
   const owner = privateKeyToP256Account(
     loadP256PrivateKey(requiredEnv('P256_PRIVATE_KEY_PATH')),
@@ -109,10 +111,6 @@ async function main(): Promise<void> {
     chain: hegotaTestnet,
     transport: http(rpcUrl),
   })
-  const code = await client.getCode({ address: sender })
-  if (code === undefined || !code.toLowerCase().startsWith('0xef0100'))
-    throw new Error(`sender ${sender} does not have an EIP-7702 delegation`)
-
   const signerCall = await client.call({
     to: sender,
     data: encodeFunctionData({ abi: P256_ACCOUNT_ABI, functionName: 'p256Signer' }),
@@ -129,7 +127,12 @@ async function main(): Promise<void> {
       `delegated account authorizes ${configuredSigner}, but the PEM identity is ${owner.address}`,
     )
 
-  const account = await toP256FrameAccount({ client, address: sender, owner })
+  const account = await toFrameAccount({
+    client,
+    address: sender,
+    owner,
+    delegateAddress,
+  })
   const [senderBalanceBefore, recipientBalanceBefore] = await Promise.all([
     client.getBalance({ address: sender }),
     client.getBalance({ address: recipient }),

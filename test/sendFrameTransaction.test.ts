@@ -2,8 +2,8 @@ import { describe, expect, test } from 'vitest'
 import { createClient, custom, getAddress, keccak256, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { mainnet } from 'viem/chains'
-import { toEoaFrameAccount } from '../src/accounts/toEoaFrameAccount.js'
-import { toEoaFramePayerAccount } from '../src/accounts/toEoaFramePayerAccount.js'
+import { toFrameAccount } from '../src/accounts/toFrameAccount.js'
+import { toFramePayerAccount } from '../src/accounts/toFramePayerAccount.js'
 import { decodeFrameTx } from '../src/envelope.js'
 import { sendFrameTransaction } from '../src/sendFrameTransaction.js'
 
@@ -40,7 +40,7 @@ function testClient() {
 describe('sendFrameTransaction', () => {
   test('defaults optional call fields and returns the node hash', async () => {
     const { client, owner, getSubmittedRaw } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
     const recipient = getAddress('0x0000000000000000000000000000000000001234')
 
     const limits = {
@@ -66,8 +66,8 @@ describe('sendFrameTransaction', () => {
 
   test('applies overrides and signs with a distinct EOA payer', async () => {
     const { client, owner, getSubmittedRaw } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
-    const payer = await toEoaFramePayerAccount({
+    const account = await toFrameAccount({ client, owner })
+    const payer = await toFramePayerAccount({
       owner: privateKeyToAccount(PAYER_KEY),
     })
 
@@ -97,7 +97,7 @@ describe('sendFrameTransaction', () => {
 
   test('requires one per-call override for every call', async () => {
     const { client, owner, requests } = testClient()
-    const account = await toEoaFrameAccount({ client, owner })
+    const account = await toFrameAccount({ client, owner })
 
     await expect(
       sendFrameTransaction(
