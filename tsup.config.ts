@@ -14,7 +14,7 @@ const shared: Options = {
 }
 
 export default defineConfig([
-  { ...shared, format: ['esm'], clean: true },
+  { ...shared, format: ['esm'] },
   // ox 1.x ships ESM only, and require() of an ES module needs Node 20.19 or
   // 22.12. Bundling it into the CJS build keeps require() working on Node 20.
   { ...shared, format: ['cjs'], noExternal: ['ox'] },

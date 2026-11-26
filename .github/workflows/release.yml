@@ -61,6 +61,13 @@ jobs:
       # dist/ must exist before publish, since the tarball is files: ["dist", ...].
       - run: bun run build
 
+      # An npm version cannot be replaced, so check the built entries and their
+      # type declarations before anything is published.
+      - run: node scripts/check-cjs.cjs
+
+      - name: Check published type resolution
+        run: bunx --yes @arethetypeswrong/cli@latest --pack .
+
       - name: Release and publish
         run: |
           if [ -n "$(git tag -l 'v*')" ]; then

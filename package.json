@@ -67,7 +67,7 @@
     "rlp"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "rm -rf dist && tsup",
     "test": "vitest run",
     "test:live": "FRAMES_LIVE=1 vitest run test/live",
     "test:watch": "vitest",
