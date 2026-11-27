@@ -19,6 +19,11 @@ bun add @jaw.id/frametx-kit viem
 `viem` is a peer dependency, not a bundled one. `frameActions` extends a viem client, so
 your client and this library have to be the same viem.
 
+The library runs on Node 20.0 and newer. Installing it on Node 20.0 to 20.18 can still
+fail: some dependencies of `ox` declare `node >=20.19`, and Yarn 1, or npm with
+`engine-strict`, rejects the install. Use Node 20.19 or newer, or install without engine
+checks (for example `yarn --ignore-engines` on Yarn 1).
+
 ## Use
 
 ```ts

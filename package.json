@@ -67,19 +67,20 @@
     "rlp"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "rm -rf dist && tsup",
     "test": "vitest run",
     "test:live": "FRAMES_LIVE=1 vitest run test/live",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "ox": "^0.14.45"
+    "ox": "^1.8.16"
   },
   "peerDependencies": {
     "viem": "^2.21.0"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "0.18.5",
     "@semantic-release/changelog": "^7.0.0",
     "@semantic-release/git": "^11.0.1",
     "@types/node": "^20.16.0",
