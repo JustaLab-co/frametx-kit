@@ -66,7 +66,7 @@ jobs:
       - run: node scripts/check-cjs.cjs
 
       - name: Check published type resolution
-        run: bunx --yes @arethetypeswrong/cli@latest --pack .
+        run: bunx --no-install attw --pack .
 
       - name: Release and publish
         run: |
